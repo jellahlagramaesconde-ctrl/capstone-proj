@@ -7,6 +7,11 @@ dotenv.config();
 // DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@localhost:5432/jors_cosca"
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  // Cloud-hosted PostgreSQL (Render, Railway, Supabase, Neon, etc.)
+  // requires SSL. Locally, SSL is off so the dev setup stays unchanged.
+  ssl: process.env.NODE_ENV === "production"
+    ? { rejectUnauthorized: false }
+    : false,
 });
 
 pool.on("error", (err: Error) => {

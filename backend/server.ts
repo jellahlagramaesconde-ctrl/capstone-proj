@@ -2475,6 +2475,31 @@ async function applySchemaMigrations() {
   }
 }
 
+// ---------------------------------------------------------------
+// STATIC FILE SERVING — serve the built React frontend in production.
+// In development, Vite's dev server handles this; in production
+// (Render, Railway, VPS), Express serves the pre-built dist/ files
+// directly so the entire app runs as a single service.
+//
+// IMPORTANT: This MUST come AFTER all /api/* routes above. Express
+// processes routes in registration order, so API endpoints are
+// matched first. The catch-all `*` only fires for non-API paths
+// (e.g. `/`, `/dashboard`, `/settings`) and serves index.html so
+// React Router handles client-side routing.
+// ---------------------------------------------------------------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const frontendDistPath = path.resolve(__dirname, "../Frontend/dist");
+
+// Serve static assets (JS, CSS, images) from the built frontend
+app.use(express.static(frontendDistPath));
+
+// Any request that didn't match an /api/* route gets index.html
+// so React Router can handle it client-side.
+app.get("*", (req, res) => {
+  res.sendFile(path.join(frontendDistPath, "index.html"));
+});
+
 (async () => {
   await applySchemaMigrations();
   await loadDepartmentCache();
