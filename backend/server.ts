@@ -41,16 +41,6 @@ const allowedOrigins = (process.env.FRONTEND_URL || "")
   .split(",")
   .map((s) => sanitizeOrigin(s))
   .filter(Boolean);
-if (url && /^https?:\/\/[^/]+$/.test(url) && !/:(\d+)$/.test(url)) {
-  console.warn(`[JORS] FRONTEND_URL origin missing port — auto-fixing "${url}" → "${url}:5173"`);
-  url = `${url}:5173`;
-}
-return url;
-}
-const allowedOrigins = (process.env.FRONTEND_URL || "")
-  .split(",")
-  .map((s) => sanitizeOrigin(s))
-  .filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
