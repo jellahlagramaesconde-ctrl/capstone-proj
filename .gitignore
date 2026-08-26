@@ -1,0 +1,19 @@
+# Secrets — never commit real credentials
+.env
+.env.local
+accounts.config.json
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db

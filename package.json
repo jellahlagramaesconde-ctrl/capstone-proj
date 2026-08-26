@@ -1,0 +1,12 @@
+{
+    "name": "jors-cosca-root",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "dev": "npx concurrently \"npm --prefix backend run dev\" \"npm --prefix Frontend run dev\""
+    },
+    "dependencies": {
+        "bcryptjs": "^3.0.3",
+        "express-rate-limit": "^8.6.2"
+    }
+}
