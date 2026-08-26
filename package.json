@@ -4,7 +4,7 @@
     "private": true,
     "scripts": {
         "dev": "npx concurrently \"npm --prefix backend run dev\" \"npm --prefix Frontend run dev\"",
-        "build": "npm --prefix Frontend install --include=dev && npm --prefix Frontend run build",
+        "build": "npm --prefix backend install && npm --prefix Frontend install --include=dev && npm --prefix Frontend run build",
         "start": "npm --prefix backend run start"
     },
     "dependencies": {
