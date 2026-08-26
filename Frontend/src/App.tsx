@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import { JobOrder, Staff, LogEntry, type Notification, Role } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
@@ -36,7 +36,10 @@ function sanitizeApiUrl(raw: string): string {
     console.warn(`[JORS] VITE_API_URL is missing http:// — auto-fixing "${url}" → "http://${url}"`);
     url = `http://${url}`;
   }
-  if (url && /^https?:\/\/[^/]+$/.test(url) && !/:(\d+)$/.test(url)) {
+  // Only auto-append :4000 for localhost dev URLs. Deployed hosts (Render,
+  // Vercel, custom domains, etc.) intentionally have no port — HTTPS traffic
+  // goes through 443 — so don't mangle those.
+  if (url && /^https?:\/\/(localhost|127\.0\.0\.1)$/i.test(url)) {
     console.warn(`[JORS] VITE_API_URL is missing a port — auto-fixing "${url}" → "${url}:4000"`);
     url = `${url}:4000`;
   }
