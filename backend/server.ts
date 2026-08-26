@@ -2496,7 +2496,7 @@ app.use(express.static(frontendDistPath));
 
 // Any request that didn't match an /api/* route gets index.html
 // so React Router can handle it client-side.
-app.get("*", (req, res) => {
+app.get("/{*splat}", (req, res) => {
   res.sendFile(path.join(frontendDistPath, "index.html"));
 });
 
