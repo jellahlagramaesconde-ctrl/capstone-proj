@@ -16,21 +16,36 @@ dotenv.config();
 
 const app = express();
 app.use(helmet());
+
 // FRONTEND_URL can be a comma-separated list, e.g.
-// FRONTEND_URL=http://jors.cosca.local:5173,http://192.168.1.23:5173
-// so the dev machine's own hostname AND its LAN IP (used by phones/other
-// laptops on the same WiFi) are both accepted.
+// FRONTEND_URL=http://jors.cosca.local:5173,http://192.168.1.23:5173,https://jors-cosca.onrender.com
+// so local dev origins (hostname/LAN IP on Vite's port) AND the production
+// Render URL are all accepted.
 function sanitizeOrigin(raw: string): string {
   let url = raw.trim().replace(/\/+$/, "");
   if (url && !/^https?:\/\//i.test(url)) {
     console.warn(`[JORS] FRONTEND_URL origin missing http:// — auto-fixing "${url}" → "http://${url}"`);
     url = `http://${url}`;
   }
-  if (url && /^https?:\/\/[^/]+$/.test(url) && !/:(\d+)$/.test(url)) {
+  // Only auto-append the Vite dev port to plain http:// origins (local dev,
+  // e.g. hostname or LAN IP with no port). Never touch https:// origins —
+  // those are real deployed URLs (Render, custom domains, etc.) and must be
+  // compared exactly as given, with no port appended.
+  if (url && /^http:\/\/[^/]+$/.test(url) && !/:(\d+)$/.test(url)) {
     console.warn(`[JORS] FRONTEND_URL origin missing port — auto-fixing "${url}" → "${url}:5173"`);
     url = `${url}:5173`;
   }
   return url;
+}
+const allowedOrigins = (process.env.FRONTEND_URL || "")
+  .split(",")
+  .map((s) => sanitizeOrigin(s))
+  .filter(Boolean);
+if (url && /^https?:\/\/[^/]+$/.test(url) && !/:(\d+)$/.test(url)) {
+  console.warn(`[JORS] FRONTEND_URL origin missing port — auto-fixing "${url}" → "${url}:5173"`);
+  url = `${url}:5173`;
+}
+return url;
 }
 const allowedOrigins = (process.env.FRONTEND_URL || "")
   .split(",")
