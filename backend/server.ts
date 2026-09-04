@@ -1081,6 +1081,35 @@ async function getStaffIdByName(name: string | undefined | null): Promise<number
   return result.rows[0]?.id ?? null;
 }
 
+// Fetches every attached photo for a set of job order ids in one query,
+// ordered by submission position, and returns a Map keyed by job_order_id.
+// Mirrors getTeamsForJobOrders — same batched-lookup pattern, no N+1.
+async function getPhotosForJobOrders(jobOrderIds: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (jobOrderIds.length === 0) return map;
+  const result = await pool.query(
+    `SELECT job_order_id, photo_url
+     FROM job_order_photos
+     WHERE job_order_id = ANY($1)
+     ORDER BY job_order_id, position ASC, id ASC`,
+    [jobOrderIds]
+  );
+  for (const row of result.rows) {
+    const list = map.get(row.job_order_id) || [];
+    list.push(row.photo_url);
+    map.set(row.job_order_id, list);
+  }
+  return map;
+}
+
+// Attaches `photoUrls` (every attached photo, in order) to an array of
+// already-mapped tickets, in one batched query. Additive — `photoUrl`
+// (the first photo) is untouched, so nothing that already reads it breaks.
+async function attachPhotos<T extends { id: string; photoUrl?: string }>(tickets: T[]): Promise<(T & { photoUrls: string[] })[]> {
+  const photos = await getPhotosForJobOrders(tickets.map((t) => t.id));
+  return tickets.map((t) => ({ ...t, photoUrls: photos.get(t.id) || (t.photoUrl ? [t.photoUrl] : []) }));
+}
+
 // ---------------------------------------------------------------
 // STAFF MATCHING — queries the database (staff_skills + job_type_skill_requirements)
 // instead of using hardcoded technician names. Works for the AI path AND the
@@ -1553,7 +1582,7 @@ app.get("/api/job-orders", authenticateToken, async (req: AuthedRequest, res) =>
        ORDER BY s.name ASC`
     );
     const workerTaskLimit = await getWorkerTaskLimit();
-    const jobOrders = await attachTeams(ordersResult.rows.map(mapJobOrderRow));
+    const jobOrders = await attachPhotos(await attachTeams(ordersResult.rows.map(mapJobOrderRow)));
     res.json({
       jobOrders,
       staffRoster: staffResult.rows.map((row) => ({ ...mapStaffRow(row), activeTaskCount: Number(row.active_task_count) })),
@@ -1689,12 +1718,27 @@ app.get("/api/logs", authenticateToken, async (req: AuthedRequest, res) => {
 // Submit a new job order with AI (or rule-based) analysis — Dept accounts only
 app.post("/api/job-orders", authenticateToken, requireRole("Dept", "PPO", "President", "Finance"), async (req, res) => {
   try {
-    const { office, description, requestedByName, isEmergency, photoUrl } = req.body;
+    const { office, description, requestedByName, isEmergency, photoUrl, photoUrls: photoUrlsInput } = req.body;
     if (!description || !office) {
       return res.status(400).json({ error: "Office and Description are required fields." });
     }
     if (!requestedByName || !requestedByName.trim()) {
       return res.status(400).json({ error: "Please enter the full name of the department head making this request." });
+    }
+
+    // Accept either the new `photoUrls` array or the legacy single
+    // `photoUrl` field (still sent by any client that hasn't been updated
+    // for multi-photo yet). Capped at 5 — plenty for evidence photos,
+    // and keeps a single submission's total payload reasonable even
+    // after each photo is already compressed client-side.
+    const MAX_PHOTOS_PER_REQUEST = 5;
+    let photoUrls: string[] = Array.isArray(photoUrlsInput)
+      ? photoUrlsInput.filter((p: unknown): p is string => typeof p === "string" && p.length > 0)
+      : photoUrl
+        ? [photoUrl]
+        : [];
+    if (photoUrls.length > MAX_PHOTOS_PER_REQUEST) {
+      return res.status(400).json({ error: `You can attach up to ${MAX_PHOTOS_PER_REQUEST} photos per request.` });
     }
 
     let parsedResult: any;
@@ -1831,10 +1875,28 @@ app.post("/api/job-orders", authenticateToken, requireRole("Dept", "PPO", "Presi
         parsedResult.explanation,
         requestedByName.trim(),
         Boolean(isEmergency),
-        photoUrl || null,
+        photoUrls[0] || null,
       ]
     );
-    const newTicket = mapJobOrderRow(insertResult.rows[0]);
+    const newTicket = mapJobOrderRow(insertResult.rows[0]) as ReturnType<typeof mapJobOrderRow> & { photoUrls: string[] };
+
+    // Insert every attached photo (including the first, already stored
+    // above as the legacy `photo_url`) into job_order_photos, in
+    // submission order, so more than one photo can be retrieved later.
+    if (photoUrls.length > 0) {
+      const values: string[] = [];
+      const params: any[] = [];
+      photoUrls.forEach((url, i) => {
+        params.push(newTicket.id, url, i);
+        const base = params.length - 3;
+        values.push(`($${base + 1}, $${base + 2}, $${base + 3})`);
+      });
+      await pool.query(
+        `INSERT INTO job_order_photos (job_order_id, photo_url, position) VALUES ${values.join(", ")}`,
+        params
+      );
+    }
+    newTicket.photoUrls = photoUrls;
 
     // Persist the full team (lead + any teammates) now that the job_orders
     // row exists to reference. If matching came up empty (all internal
@@ -2001,7 +2063,7 @@ app.post("/api/job-orders/override", authenticateToken, requireRole("PPO"), asyn
     ]);
     void notifyRoleByEmail("PPO", `Job Order Override — ${id}`, logMsg, id);
 
-    const [enrichedTicket] = await attachTeams([mapJobOrderRow(updateResult.rows[0])]);
+    const [enrichedTicket] = await attachPhotos(await attachTeams([mapJobOrderRow(updateResult.rows[0])]));
     res.json(enrichedTicket);
   } catch (err: any) {
     console.error(err);
