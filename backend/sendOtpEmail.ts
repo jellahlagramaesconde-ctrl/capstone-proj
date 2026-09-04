@@ -1,26 +1,8 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-// Sends the password-reset OTP via Brevo's transactional email API.
-//
-// One-time setup:
-//   1. Sign up free at https://www.brevo.com (no card needed)
-//   2. Settings -> Senders, Domains & Dedicated IPs -> Senders -> Add a sender
-//      using an email you control (e.g. your own Gmail). Click the
-//      confirmation link Brevo emails you.
-//   3. Settings -> SMTP & API -> API Keys -> Generate a new API key.
-//   4. Add to your .env:
-//        BREVO_API_KEY=xkeysib-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
-//        BREVO_SENDER_EMAIL=you@gmail.com   (must match the verified sender)
-//        BREVO_SENDER_NAME=JORS COSCA
-//
-// Free plan: 300 emails/day, forever, sends to any recipient once the
-// sender above is verified.
-
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
 
-// Shared low-level sender — both the OTP email and the task-dispatch email
-// below go through this, so there's exactly one place that talks to Brevo.
 async function sendBrevoEmail(toEmail: string, subject: string, htmlContent: string): Promise<void> {
   const apiKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.BREVO_SENDER_EMAIL;
@@ -69,11 +51,6 @@ export async function sendOtpEmail(toEmail: string, otpCode: string): Promise<vo
   );
 }
 
-// Generic notification email — used for every other notification event
-// (PPO, President, Finance, and Dept) that isn't the specific rich staff
-// dispatch email above. Same "you have to log in to see full detail"
-// pattern as the dispatch email, just without the ticket-detail fields
-// that only make sense for a dispatch.
 export async function sendGenericNotificationEmail(toEmail: string, subject: string, message: string, ticketId?: string): Promise<void> {
   await sendBrevoEmail(
     toEmail,
@@ -88,12 +65,7 @@ export async function sendGenericNotificationEmail(toEmail: string, subject: str
     `
   );
 }
-// Sent to a maintenance staff member's registered email the moment a job
-// order is actually dispatched to them — either the emergency PPO-approval
-// track (dispatched immediately) or the normal track (dispatched once
-// Finance releases funding). Fulfills FR#6 / System Features 5.1's
-// "assigned staff receive automated email notifications when tasks are
-// dispatched" claim, which previously had no corresponding code.
+
 export interface DispatchEmailDetails {
   ticketId: string;
   office: string;

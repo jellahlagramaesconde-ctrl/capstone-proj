@@ -5,7 +5,6 @@
   --font-display: "Outfit", "DM Sans", system-ui, sans-serif;
   --font-mono: "Inter", "DM Sans", system-ui, sans-serif;
 
-  /* Slightly larger type scale for readability */
   --text-xs: 0.8125rem;
   --text-xs--line-height: 1.25rem;
   --text-sm: 0.9375rem;
@@ -16,15 +15,14 @@
   --text-lg--line-height: 1.75rem;
   --text-xl: 1.3125rem;
   --text-xl--line-height: 1.875rem;
-  
-  /* Matte Maroon & Cream Collegiate Theme — light mode only */
+
   --color-blueprint-navy: #1A0E10;
   --color-navy-dark: #1A0E10;
   --color-navy-medium: #3A1F22;
-  --color-cyan-accent: #8C2331;   /* secondary accent — bright maroon */
-  --color-safety-amber: #6B1420;  /* primary accent — deep maroon */
-  --color-soft-green: #7A8C5A;    /* muted, kept only for "completed" status legibility */
-  --color-soft-red: #C13B2E;      /* matte alert red, distinct from brand maroon */
+  --color-cyan-accent: #8C2331;
+  --color-safety-amber: #6B1420;
+  --color-soft-green: #7A8C5A;
+  --color-soft-red: #C13B2E;
 }
 
 @layer base {
@@ -56,18 +54,22 @@
     mix-blend-mode: multiply;
   }
 
-  /* Make sure real content stacks above the grain layer */
   #root {
     position: relative;
     z-index: 1;
   }
 
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: var(--font-display);
     letter-spacing: -0.02em;
     line-height: 1.25;
   }
-  
+
   .monospace-id {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
@@ -75,12 +77,11 @@
     font-weight: 500;
   }
 
-  /* Optional helper: apply to any card/panel that should read as matte
-     (a touch of grain + a hairline inner highlight instead of a glossy shadow) */
   .matte-surface {
     position: relative;
     box-shadow: none;
   }
+
   .matte-surface::after {
     content: "";
     position: absolute;
@@ -94,31 +95,58 @@
   }
 }
 
-/* Warm dot-grid background pattern */
 .geometric-grid {
   background-color: #1A0E10;
   background-image: radial-gradient(#3A1F22 1px, transparent 1px);
   background-size: 24px 24px;
 }
-/* ─── Login Page Animations ─────────────────────────────────────── */
+
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes fade-in-up {
-  from { opacity: 0; transform: translateY(20px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes slide-in-left {
-  from { opacity: 0; transform: translateX(-24px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50%       { transform: translateY(-8px); }
+
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
 }
 
 .animate-fade-in {
@@ -137,15 +165,28 @@
   animation: float 4s ease-in-out infinite;
 }
 
-/* ─── Toast Notification Animations ──────────────────────────────── */
 @keyframes toast-slide-in {
-  from { opacity: 0; transform: translateX(100%); }
-  to   { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @keyframes toast-slide-out {
-  from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(100%); }
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
 }
 
 .animate-toast-in {
@@ -157,38 +198,57 @@
 }
 
 @keyframes toast-progress {
-  from { width: 100%; }
-  to   { width: 0%; }
+  from {
+    width: 100%;
+  }
+
+  to {
+    width: 0%;
+  }
 }
 
-/* Stagger children animations */
-.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
-.stagger-children > *:nth-child(2) { animation-delay: 80ms; }
-.stagger-children > *:nth-child(3) { animation-delay: 160ms; }
+.stagger-children>*:nth-child(1) {
+  animation-delay: 0ms;
+}
 
-/* ─── Portal Card Hover Polish ───────────────────────────────────── */
+.stagger-children>*:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.stagger-children>*:nth-child(3) {
+  animation-delay: 160ms;
+}
+
 .portal-card {
   position: relative;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .portal-card:hover {
   transform: translateY(-3px);
   box-shadow: 0 12px 40px -8px rgba(107, 20, 32, 0.18);
 }
 
-/* ─── Input Focus Enhancement ────────────────────────────────────── */
 .login-input {
   transition: all 0.2s ease;
 }
+
 .login-input:focus {
   box-shadow: 0 0 0 3px rgba(107, 20, 32, 0.12);
 }
 
-/* ─── Cosca seal glow animation ──────────────────────────────────── */
 @keyframes seal-glow {
-  0%, 100% { box-shadow: 0 0 40px rgba(255,255,255,0.08), 0 0 80px rgba(107,20,32,0.3); }
-  50%       { box-shadow: 0 0 60px rgba(255,255,255,0.14), 0 0 120px rgba(107,20,32,0.5); }
+
+  0%,
+  100% {
+    box-shadow: 0 0 40px rgba(255, 255, 255, 0.08), 0 0 80px rgba(107, 20, 32, 0.3);
+  }
+
+  50% {
+    box-shadow: 0 0 60px rgba(255, 255, 255, 0.14), 0 0 120px rgba(107, 20, 32, 0.5);
+  }
 }
+
 .seal-glow {
   animation: seal-glow 3s ease-in-out infinite;
 }

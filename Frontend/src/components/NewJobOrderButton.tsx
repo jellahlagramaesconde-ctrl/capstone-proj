@@ -2,7 +2,7 @@ import React, { useState, useRef } from "react";
 import { ClipboardCheck, Sparkles, Send, User, X, Plus, Building2, Upload, Image as ImageIcon } from "lucide-react";
 
 interface NewJobOrderButtonProps {
-  onSubmitRequest: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrl?: string) => Promise<void>;
+  onSubmitRequest: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[]) => Promise<void>;
   isSubmitting: boolean;
   /** If provided, the office field renders as a dropdown of these labels instead of free text. */
   officeOptions?: string[];
@@ -40,19 +40,59 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
   // so PPO/Finance/School Head raising a request on someone's behalf can
   // attach evidence too, not just Dept accounts.
   const [dragActive, setDragActive] = useState(false);
-  const [attachedFile, setAttachedFile] = useState<File | null>(null);
-  const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [filePreviews, setFilePreviews] = useState<string[]>([]);
+  const MAX_PHOTOS = 5;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelected = (file: File) => {
-    setAttachedFile(file);
-    if (file.type.startsWith("image/")) {
+  // Phone camera photos are often several MB before encoding, and become
+  // ~33% larger once base64-encoded — easily blowing past the backend's
+  // 10mb JSON body limit (see server.ts). Downscaling to a reasonable max
+  // width and re-encoding as compressed JPEG keeps every submission well
+  // under that limit while staying plenty legible for PPO review.
+  const compressImage = (file: File, maxWidth = 1280, quality = 0.7): Promise<string> => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => setFilePreview(reader.result as string);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, maxWidth / img.width);
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("Canvas not supported"));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = reject;
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = reject;
       reader.readAsDataURL(file);
-    } else {
-      setFilePreview(null);
-    }
+    });
+  };
+
+  const handleFilesSelected = (files: File[]) => {
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    const room = MAX_PHOTOS - attachedFiles.length;
+    const accepted = imageFiles.slice(0, Math.max(0, room));
+    if (accepted.length === 0) return;
+
+    setAttachedFiles((prev) => [...prev, ...accepted]);
+    accepted.forEach((file) => {
+      compressImage(file)
+        .then((compressedDataUrl) => setFilePreviews((prev) => [...prev, compressedDataUrl]))
+        .catch(() => setFilePreviews((prev) => [...prev, ""]));
+    });
+  };
+
+  const removeFileAt = (index: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+    setFilePreviews((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -66,20 +106,20 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileSelected(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFilesSelected(Array.from(e.dataTransfer.files));
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFileSelected(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      handleFilesSelected(Array.from(e.target.files));
     }
   };
 
-  const clearFile = () => {
-    setAttachedFile(null);
-    setFilePreview(null);
+  const clearFiles = () => {
+    setAttachedFiles([]);
+    setFilePreviews([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -89,10 +129,10 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
     e.preventDefault();
     if (!office.trim() || !description.trim() || !requestedByName.trim()) return;
 
-    await onSubmitRequest(office.trim(), description, requestedByName.trim(), isEmergency, filePreview || undefined);
+    await onSubmitRequest(office.trim(), description, requestedByName.trim(), isEmergency, filePreviews.filter(Boolean));
     setDescription("");
     setIsEmergency(false);
-    clearFile();
+    clearFiles();
     setFormSuccess(true);
     setTimeout(() => {
       setFormSuccess(false);
@@ -203,17 +243,19 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
 
               {/* Drag & Drop File upload Drop Zone */}
               <div>
-                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">Attach Photo (Optional)</label>
+                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">
+                  Attach Photos (Optional, up to {MAX_PHOTOS})
+                </label>
 
                 <div
                   onDragEnter={handleDrag}
                   onDragOver={handleDrag}
                   onDragLeave={handleDrag}
                   onDrop={handleDrop}
-                  onClick={triggerFileInput}
-                  className={`border-2 border-dashed rounded-lg p-5 flex flex-col items-center justify-center cursor-pointer transition-all ${dragActive
+                  onClick={() => attachedFiles.length < MAX_PHOTOS && triggerFileInput()}
+                  className={`border-2 border-dashed rounded-lg p-5 flex flex-col items-center justify-center transition-all ${attachedFiles.length >= MAX_PHOTOS ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${dragActive
                     ? "border-[#8C2331] bg-[#8C2331]/5"
-                    : attachedFile
+                    : attachedFiles.length > 0
                       ? "border-soft-green bg-soft-green/5"
                       : "border-[#DDD2C8] hover:border-cyan-accent bg-[#F5F1EC]"
                     }`}
@@ -223,39 +265,71 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
                     ref={fileInputRef}
                     onChange={handleFileChange}
                     accept="image/*"
+                    multiple
                     className="hidden"
                   />
 
-                  {attachedFile ? (
-                    <div className="text-center w-full">
-                      {filePreview ? (
-                        <img
-                          src={filePreview}
-                          alt="Attached Preview"
-                          className="w-24 h-24 object-cover mx-auto rounded border border-[#E6DDD3] mb-2.5 animate-fade-in"
-                        />
-                      ) : (
-                        <ImageIcon className="w-8 h-8 text-soft-green mx-auto mb-2" />
-                      )}
-                      <p className="text-xs font-semibold text-[#2B1210] truncate max-w-[200px] mx-auto">
-                        {attachedFile.name}
+                  {attachedFiles.length > 0 ? (
+                    <div className="w-full">
+                      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                        {attachedFiles.map((file, i) => (
+                          <div key={i} className="relative group">
+                            {filePreviews[i] ? (
+                              <img
+                                src={filePreviews[i]}
+                                alt={`Attached preview ${i + 1}`}
+                                className="w-full aspect-square object-cover rounded border border-[#E6DDD3] animate-fade-in"
+                              />
+                            ) : (
+                              <div className="w-full aspect-square flex items-center justify-center bg-white rounded border border-[#E6DDD3]">
+                                <ImageIcon className="w-6 h-6 text-slate-400" />
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeFileAt(i);
+                              }}
+                              title={`Remove ${file.name}`}
+                              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-soft-red text-white flex items-center justify-center text-xs font-bold shadow-sm opacity-90 hover:opacity-100"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                        {attachedFiles.length < MAX_PHOTOS && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              triggerFileInput();
+                            }}
+                            className="w-full aspect-square flex flex-col items-center justify-center rounded border-2 border-dashed border-[#DDD2C8] hover:border-cyan-accent text-slate-500 hover:text-cyan-accent transition-colors"
+                          >
+                            <Plus className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-600 mt-2 text-center">
+                        {attachedFiles.length} of {MAX_PHOTOS} photo{attachedFiles.length === 1 ? "" : "s"} attached
                       </p>
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          clearFile();
+                          clearFiles();
                         }}
-                        className="text-xs font-mono text-soft-red hover:underline mt-1.5 uppercase font-bold"
+                        className="text-xs font-mono text-soft-red hover:underline mt-1.5 uppercase font-bold block mx-auto"
                       >
-                        Clear File
+                        Clear All
                       </button>
                     </div>
                   ) : (
                     <div className="text-center">
                       <Upload className="w-8 h-8 text-slate-600 mx-auto mb-2" />
                       <p className="text-xs text-slate-600 font-semibold">
-                        Drag & Drop Photo Here
+                        Drag & Drop Photos Here
                       </p>
                       <p className="text-sm text-slate-600 mt-1 font-sans">
                         or click to manually browse system files

@@ -22,9 +22,7 @@ export default defineConfig(() => {
           changeOrigin: true,
         },
       },
-      // Keep HMR settings if needed
       hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
   };

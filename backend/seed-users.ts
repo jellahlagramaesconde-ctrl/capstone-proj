@@ -1,16 +1,3 @@
-/**
- * JORS COSCA — Database Seed Script
- * Colegio de Santa Catalina de Alejandria (COSCA)
- *
- * Creates all system accounts with bcrypt-hashed passwords.
- * Safe to re-run: uses ON CONFLICT (username) DO UPDATE.
- *
- * Usage:
- *   npx tsx seed-users.ts
- *
- * Make sure your .env is configured before running.
- */
-
 import bcrypt from "bcryptjs";
 import { pool } from "./db";
 import dotenv from "dotenv";
@@ -18,14 +5,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const SALT_ROUNDS = 12;
-
-// ──────────────────────────────────────────────────────────────
-// SYSTEM ACCOUNTS
-// Change passwords before deploying to production!
-// ──────────────────────────────────────────────────────────────
 const ACCOUNTS = [
-
-  // ─── PPO Admin Head ───────────────────────────────────────
   {
     username: "ppo.head",
     password: "ppo@cosca2026",
@@ -33,8 +13,6 @@ const ACCOUNTS = [
     fullName: "Engr. Lilibeth P. Gauma",
     email: "ppo@cosca.edu.ph",
   },
-
-  // ─── Finance Department Head ──────────────────────────────
   {
     username: "finance.head",
     password: "finance@cosca2026",
@@ -42,8 +20,6 @@ const ACCOUNTS = [
     fullName: "Ms. Mary Magdalene Z. Villegas, CPA",
     email: "finance@cosca.edu.ph",
   },
-
-  // ─── School President / Directress ────────────────────────
   {
     username: "president.head",
     password: "president@cosca2026",
@@ -51,8 +27,6 @@ const ACCOUNTS = [
     fullName: "Sr. Ma. Assumpta A. Alinea, OSA, EdD",
     email: "president@cosca.edu.ph",
   },
-
-  // ─── Maintenance Staff Accounts ───────────────────────────
   {
     username: "delfin.ramirez",
     password: "staff@cosca2026",
@@ -81,8 +55,6 @@ const ACCOUNTS = [
     fullName: "Esteban Cruz",
     email: "esteban@cosca.edu.ph",
   },
-
-  // ─── Requesting Department Accounts ───────────────────────
   {
     username: "academic.affairs",
     password: "dept@cosca2026",
@@ -141,7 +113,6 @@ const ACCOUNTS = [
   },
 ];
 
-// ──────────────────────────────────────────────────────────────
 async function seed() {
   console.log("═══════════════════════════════════════════════════");
   console.log("  JORS COSCA — Database Seeder");
@@ -175,7 +146,6 @@ async function seed() {
     }
   }
 
-  // Link staff user accounts to staff table rows
   console.log("\n  🔗 Linking Staff user accounts to staff table...");
   try {
     const linkResult = await pool.query(

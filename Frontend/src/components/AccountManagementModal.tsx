@@ -7,7 +7,7 @@ export interface UserAccount {
   fullName: string;
   role: string;
   email: string | null;
-  department?: string | null; // office value from DEPARTMENT_OFFICES, set for role === "Dept" accounts
+  department?: string | null;
   createdAt?: string;
 }
 
@@ -43,7 +43,6 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
-  // Form State
   const [formFullName, setFormFullName] = useState("");
   const [formUsername, setFormUsername] = useState("");
   const [formEmail, setFormEmail] = useState("");
@@ -51,7 +50,6 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
   const [formPassword, setFormPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // Status & Feedback
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
@@ -59,7 +57,6 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Search Filter
   const filteredUsers = users.filter((u) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
@@ -71,7 +68,6 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     );
   });
 
-  // Generate strong random password
   const handleGeneratePassword = () => {
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
     let pass = "";
@@ -82,7 +78,6 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     setShowPassword(true);
   };
 
-  // Password strength logic
   const getPasswordStrength = (pass: string) => {
     if (!pass) return { score: 0, label: "Empty", color: "bg-gray-200" };
     if (pass.length < 8) return { score: 1, label: "Too Short (Min 8 chars)", color: "bg-rose-500" };

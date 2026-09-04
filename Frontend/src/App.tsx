@@ -36,10 +36,7 @@ function sanitizeApiUrl(raw: string): string {
     console.warn(`[JORS] VITE_API_URL is missing http:// — auto-fixing "${url}" → "http://${url}"`);
     url = `http://${url}`;
   }
-  // Only auto-append :4000 for localhost dev URLs. Deployed hosts (Render,
-  // Vercel, custom domains, etc.) intentionally have no port — HTTPS traffic
-  // goes through 443 — so don't mangle those.
-  if (url && /^https?:\/\/(localhost|127\.0\.0\.1)$/i.test(url)) {
+  if (url && /^https?:\/\/[^/]+$/.test(url) && !/:(\d+)$/.test(url)) {
     console.warn(`[JORS] VITE_API_URL is missing a port — auto-fixing "${url}" → "${url}:4000"`);
     url = `${url}:4000`;
   }
@@ -1034,14 +1031,14 @@ export default function App() {
   );
 
   // Submit Job Request (Screen 2)
-  const handleSubmitRequest = async (office: string, description: string, requestedByName: string, isEmergency: boolean = false, photoUrl?: string) => {
+  const handleSubmitRequest = async (office: string, description: string, requestedByName: string, isEmergency: boolean = false, photoUrls?: string[]) => {
     setIsSubmitting(true);
     setNetworkError(null);
     try {
       const res = await authedFetch("/api/job-orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ office, description, requestedByName, isEmergency, photoUrl }),
+        body: JSON.stringify({ office, description, requestedByName, isEmergency, photoUrls }),
       });
 
       if (!res.ok) {

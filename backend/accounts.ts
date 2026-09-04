@@ -1,34 +1,3 @@
-/**
- * JORS COSCA — Account Management (single file, one shared method)
- * Colegio de Santa Catalina de Alejandria (COSCA)
- *
- * Creates or updates accounts for EVERY role — Dept, Staff, PPO,
- * President, Finance — using the exact same validate → hash → upsert
- * logic no matter which mode you run. That's the whole point of this
- * file: there is only one code path for "create an account", so it's
- * impossible for one account to end up set up differently than another.
- *
- * Connects to the same PostgreSQL database as the rest of the app,
- * through the shared `pool` in db.ts (reads DATABASE_URL from your .env).
- *
- * ── MODE 1: Single account (interactive, for one-off accounts) ──────
- *   npx tsx accounts.ts <username> <password> <role> "<Full Name>" [email]
- *
- *   Example:
- *     npx tsx accounts.ts j.delacruz "AnotherRealPin123" Staff "Juan Dela Cruz"
- *
- * ── MODE 2: Bulk seed (for first-time deployment setup) ─────────────
- *   npx tsx accounts.ts --bulk
- *
- *   Reads every account to create from accounts.config.json (gitignored —
- *   never committed, so real passwords never end up in your repo).
- *   First time only:
- *     cp accounts.config.example.json accounts.config.json
- *     (then edit it with real passwords)
- *
- * <role> must be one of: Dept | Staff | PPO | President | Finance
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import bcrypt from "bcryptjs";
@@ -47,9 +16,6 @@ interface AccountInput {
   email?: string | null;
 }
 
-// ────────────────────────────────────────────────────────────────
-// THE ONE SHARED METHOD — every account, both modes, goes through this.
-// ────────────────────────────────────────────────────────────────
 async function upsertAccount(input: AccountInput) {
   const { username, password, role, fullName, email } = input;
 
@@ -99,9 +65,6 @@ async function linkStaffAccounts(): Promise<string[]> {
   return result.rows.map((r) => r.name as string);
 }
 
-// ────────────────────────────────────────────────────────────────
-// MODE 1: single account from command-line args
-// ────────────────────────────────────────────────────────────────
 async function runSingle(argv: string[]) {
   const [username, password, role, fullName, email] = argv;
   if (!username || !password || !role || !fullName) {
@@ -120,9 +83,6 @@ async function runSingle(argv: string[]) {
   }
 }
 
-// ────────────────────────────────────────────────────────────────
-// MODE 2: bulk seed from accounts.config.json
-// ────────────────────────────────────────────────────────────────
 async function runBulk() {
   const configPath = path.resolve(process.cwd(), "accounts.config.json");
 

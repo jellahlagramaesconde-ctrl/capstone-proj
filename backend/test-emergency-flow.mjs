@@ -1,11 +1,3 @@
-// End-to-end test for the emergency vs normal PPO approval flow.
-// Requires Node 18+ (built-in fetch). Run against your REAL running backend:
-//
-//   node test-emergency-flow.mjs
-//
-// Fill in real usernames/passwords for existing accounts below first.
-// Uses accounts you already created with create-account.ts.
-
 const API_BASE = "http://localhost:4000";
 
 const DEPT = { username: "academic.affairs", password: "CHANGE_ME" };
@@ -62,7 +54,7 @@ async function submitJobOrder(deptToken, isEmergency) {
     }),
   });
   if (!ok) throw new Error(`Job order submission failed: ${JSON.stringify(data)}`);
-  return data; // includes id, isEmergency, status, ppoApproved, etc.
+  return data;
 }
 
 async function runEmergencyTest(deptToken, ppoToken) {

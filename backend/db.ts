@@ -3,12 +3,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// Reads DATABASE_URL from your .env file, e.g.:
-// DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@localhost:5432/jors_cosca"
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Cloud-hosted PostgreSQL (Render, Railway, Supabase, Neon, etc.)
-  // requires SSL. Locally, SSL is off so the dev setup stays unchanged.
   ssl: process.env.NODE_ENV === "production"
     ? { rejectUnauthorized: false }
     : false,
@@ -18,7 +14,6 @@ pool.on("error", (err: Error) => {
   console.error("Unexpected error on idle PostgreSQL client", err);
 });
 
-// Quick helper to confirm the DB is reachable when the server boots
 export async function testConnection() {
   try {
     const client = await pool.connect();
@@ -29,8 +24,6 @@ export async function testConnection() {
   }
 }
 
-// The DB uses snake_case columns; the frontend (types.ts) expects camelCase.
-// These helpers translate between the two so nothing else in the app has to change.
 export function mapJobOrderRow(row: any) {
   return {
     id: row.id,
@@ -75,6 +68,23 @@ export function mapLogRow(row: any) {
     timestamp: row.timestamp,
     message: row.message,
     ticketId: row.ticket_id,
+  };
+}
+
+// qty * unit_cost is computed here rather than stored in the DB, so a
+// changed unit_cost never leaves a stale `cost` value lying around.
+export function mapBudgetItemRow(row: any) {
+  const qty = Number(row.qty);
+  const unitCost = Number(row.unit_cost);
+  return {
+    id: row.id,
+    jobOrderId: row.job_order_id,
+    itemNo: row.item_no,
+    qty,
+    unit: row.unit,
+    description: row.description,
+    unitCost,
+    cost: qty * unitCost,
   };
 }
 

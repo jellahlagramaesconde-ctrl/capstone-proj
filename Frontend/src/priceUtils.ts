@@ -1,23 +1,15 @@
 import { JobOrder } from "./types";
 
-/**
- * Returns the best available cost figure for a job order:
- *   1. Finance-approved amount (final costing)
- *   2. PPO-estimated cost (first approver estimate)
- *   3. undefined (when awaiting PPO evaluation - no cost yet)
- */
 export const getJobOrderCost = (ticket: JobOrder): number | undefined => {
   if (ticket.approvedAmount !== undefined && ticket.approvedAmount !== null) return ticket.approvedAmount;
   if (ticket.estimatedCost !== undefined && ticket.estimatedCost !== null) return ticket.estimatedCost;
   return undefined;
 };
 
-/** True when the cost has been estimated by PPO or finalized by Finance. */
 export const hasConfirmedCost = (ticket: JobOrder): boolean =>
   (ticket.approvedAmount !== undefined && ticket.approvedAmount !== null) ||
   (ticket.estimatedCost !== undefined && ticket.estimatedCost !== null);
 
-/** Formats a number as Philippine Peso, e.g. 4500 -> "₱4,500". */
 export const formatPeso = (value: number): string =>
   new Intl.NumberFormat("en-PH", {
     style: "currency",
@@ -25,7 +17,6 @@ export const formatPeso = (value: number): string =>
     maximumFractionDigits: 0,
   }).format(value);
 
-/** Formats a ticket's cost with its status (Final, Estimated, or Pending Estimate). */
 export const getJobOrderCostDisplay = (ticket: JobOrder): {
   text: string;
   status: "pending" | "estimated" | "final";
@@ -56,6 +47,5 @@ export const getJobOrderCostDisplay = (ticket: JobOrder): {
   };
 };
 
-/** Sums confirmed job order costs across a list of tickets. */
 export const sumJobOrderCosts = (tickets: JobOrder[]): number =>
   tickets.reduce((sum, t) => sum + (getJobOrderCost(t) ?? 0), 0);

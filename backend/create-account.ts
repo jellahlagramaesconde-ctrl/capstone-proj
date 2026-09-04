@@ -1,14 +1,3 @@
-// Create a single real account with a password you choose.
-// Usage:
-//   npx tsx create-account.ts <username> <password> <role> "<Full Name>" [email]
-//
-// <role> must be one of: Dept | Staff | PPO | President | Finance
-//
-// Examples:
-//   npx tsx create-account.ts academic.affairs "S0meRealPassword!" Dept "Academic Affairs Office"
-//   npx tsx create-account.ts j.delacruz "AnotherRealPin123" Staff "Juan Dela Cruz"
-//   npx tsx create-account.ts ppo.head "StrongAdminKey!2026" PPO "Engr. Lilibeth P. Gauma" luiza@cosca.edu.ph
-
 import bcrypt from "bcryptjs";
 import { pool } from "./db";
 

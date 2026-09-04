@@ -204,21 +204,30 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
             </p>
           </div>
 
-          {/* Attached Photo, if the requester included one at submission */}
-          {ticket.photoUrl && (
-            <div className="space-y-2">
-              <span className="text-xs font-mono tracking-widest text-slate-600 uppercase font-bold block">
-                ATTACHED PHOTO
-              </span>
-              <a href={ticket.photoUrl} target="_blank" rel="noopener noreferrer">
-                <img
-                  src={ticket.photoUrl}
-                  alt="Attached photo of the reported issue"
-                  className="max-h-80 w-auto rounded-lg border border-[#E6DDD3] object-contain bg-[#F5F1EC]/50 p-2"
-                />
-              </a>
-            </div>
-          )}
+          {/* Attached Photos, if the requester included any at submission */}
+          {(ticket.photoUrls && ticket.photoUrls.length > 0
+            ? ticket.photoUrls
+            : ticket.photoUrl
+              ? [ticket.photoUrl]
+              : []
+          ).length > 0 && (
+              <div className="space-y-2">
+                <span className="text-xs font-mono tracking-widest text-slate-600 uppercase font-bold block">
+                  {(ticket.photoUrls?.length ?? (ticket.photoUrl ? 1 : 0)) > 1 ? "ATTACHED PHOTOS" : "ATTACHED PHOTO"}
+                </span>
+                <div className="flex flex-wrap gap-3">
+                  {(ticket.photoUrls && ticket.photoUrls.length > 0 ? ticket.photoUrls : [ticket.photoUrl!]).map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={url}
+                        alt={`Attached photo ${i + 1} of the reported issue`}
+                        className="max-h-64 w-auto rounded-lg border border-[#E6DDD3] object-contain bg-[#F5F1EC]/50 p-2"
+                      />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
 
           {/* Visual Priority Score Meter and Triage Variables */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch">
