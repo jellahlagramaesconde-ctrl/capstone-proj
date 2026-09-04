@@ -1081,75 +1081,6 @@ async function getStaffIdByName(name: string | undefined | null): Promise<number
   return result.rows[0]?.id ?? null;
 }
 
-// Fetches every attached photo for a set of job order ids in one query,
-// ordered by submission position, and returns a Map keyed by job_order_id.
-// Mirrors getTeamsForJobOrders — same batched-lookup pattern, no N+1.
-async function getPhotosForJobOrders(jobOrderIds: string[]): Promise<Map<string, string[]>> {
-  const map = new Map<string, string[]>();
-  if (jobOrderIds.length === 0) return map;
-  const result = await pool.query(
-    `SELECT job_order_id, photo_url
-     FROM job_order_photos
-     WHERE job_order_id = ANY($1)
-     ORDER BY job_order_id, position ASC, id ASC`,
-    [jobOrderIds]
-  );
-  for (const row of result.rows) {
-    const list = map.get(row.job_order_id) || [];
-    list.push(row.photo_url);
-    map.set(row.job_order_id, list);
-  }
-  return map;
-}
-
-// Attaches `photoUrls` (every attached photo, in order) to an array of
-// already-mapped tickets, in one batched query. Additive — `photoUrl`
-// (the first photo) is untouched, so nothing that already reads it breaks.
-async function attachPhotos<T extends { id: string; photoUrl?: string }>(tickets: T[]): Promise<(T & { photoUrls: string[] })[]> {
-  const photos = await getPhotosForJobOrders(tickets.map((t) => t.id));
-  return tickets.map((t) => ({ ...t, photoUrls: photos.get(t.id) || (t.photoUrl ? [t.photoUrl] : []) }));
-}
-
-// Roles that may see the itemized budget requisition breakdown. Dept/Staff
-// still see the job order's single estimated_cost/approved_amount figures
-// (already unrestricted elsewhere) but never the line-item breakdown —
-// matches "only PPO handles it, Finance/President can see + approve it".
-const BUDGET_ITEMS_VISIBLE_ROLES = new Set(["PPO", "Finance", "President"]);
-
-// Fetches every budget requisition line item for a set of job order ids in
-// one query, ordered by item_no. Mirrors getPhotosForJobOrders — same
-// batched-lookup pattern, no N+1.
-async function getBudgetItemsForJobOrders(jobOrderIds: string[]): Promise<Map<string, ReturnType<typeof mapBudgetItemRow>[]>> {
-  const map = new Map<string, ReturnType<typeof mapBudgetItemRow>[]>();
-  if (jobOrderIds.length === 0) return map;
-  const result = await pool.query(
-    `SELECT * FROM budget_requisition_items
-     WHERE job_order_id = ANY($1)
-     ORDER BY job_order_id, item_no ASC, id ASC`,
-    [jobOrderIds]
-  );
-  for (const row of result.rows) {
-    const item = mapBudgetItemRow(row);
-    const list = map.get(row.job_order_id) || [];
-    list.push(item);
-    map.set(row.job_order_id, list);
-  }
-  return map;
-}
-
-// Attaches `budgetItems` + `budgetItemsTotal` to an array of already-mapped
-// tickets, in one batched query. Only call this for roles allowed to see
-// cost breakdowns (see BUDGET_ITEMS_VISIBLE_ROLES) — callers gate that,
-// this function just does the attach.
-async function attachBudgetItems<T extends { id: string }>(tickets: T[]): Promise<(T & { budgetItems: ReturnType<typeof mapBudgetItemRow>[]; budgetItemsTotal: number })[]> {
-  const itemsMap = await getBudgetItemsForJobOrders(tickets.map((t) => t.id));
-  return tickets.map((t) => {
-    const items = itemsMap.get(t.id) || [];
-    const total = items.reduce((sum, item) => sum + item.cost, 0);
-    return { ...t, budgetItems: items, budgetItemsTotal: total };
-  });
-}
-
 // ---------------------------------------------------------------
 // STAFF MATCHING — queries the database (staff_skills + job_type_skill_requirements)
 // instead of using hardcoded technician names. Works for the AI path AND the
@@ -1622,13 +1553,7 @@ app.get("/api/job-orders", authenticateToken, async (req: AuthedRequest, res) =>
        ORDER BY s.name ASC`
     );
     const workerTaskLimit = await getWorkerTaskLimit();
-    let jobOrders = await attachPhotos(await attachTeams(ordersResult.rows.map(mapJobOrderRow)));
-    // Budget requisition line items carry cost breakdowns Dept/Staff
-    // accounts shouldn't see (see BUDGET_ITEMS_VISIBLE_ROLES) — only
-    // fetch/attach them for PPO, Finance, and President.
-    if (req.user?.role && BUDGET_ITEMS_VISIBLE_ROLES.has(req.user.role)) {
-      jobOrders = await attachBudgetItems(jobOrders);
-    }
+    const jobOrders = await attachTeams(ordersResult.rows.map(mapJobOrderRow));
     res.json({
       jobOrders,
       staffRoster: staffResult.rows.map((row) => ({ ...mapStaffRow(row), activeTaskCount: Number(row.active_task_count) })),
