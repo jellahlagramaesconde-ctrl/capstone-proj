@@ -1169,6 +1169,26 @@ export default function App() {
     }
   };
 
+  // PPO: save the itemized budget requisition for a job order — replaces
+  // the whole line-item list, and the backend recomputes/writes the total
+  // onto that job order's estimated_cost so the existing PPO/Finance
+  // approval flow picks it up automatically.
+  const handleSaveBudgetItems = async (
+    ticketId: string,
+    items: { qty: number; unit?: string; description: string; unitCost: number }[]
+  ) => {
+    const res = await authedFetch(`/api/job-orders/${ticketId}/budget-items`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => null);
+      throw new Error((errorData && errorData.error) || "Failed to save the budget requisition.");
+    }
+    await fetchDatabase();
+  };
+
   // Admin Priority/Staff Override (Screen 1)
   const handleOverride = async (
     id: string,
@@ -1927,6 +1947,7 @@ export default function App() {
                   onTicketClick={acknowledgeEmergencyTicket}
                   onSchoolHeadApprove={handleSchoolHeadApprove}
                   onFinanceApprove={handleFinanceApprove}
+                  onSaveBudgetItems={handleSaveBudgetItems}
                   onSubmitRequest={handleSubmitRequest}
                   isSubmitting={isSubmitting}
                   officeOptions={[...Object.values(DEPT_OFFICE_LABELS), ...ADMIN_OFFICE_LABELS]}

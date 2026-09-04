@@ -22,6 +22,7 @@ interface AdminDashboardProps {
   onTicketClick?: (ticketId: string) => void;
   onSchoolHeadApprove: (id: string) => void;
   onFinanceApprove: (id: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
+  onSaveBudgetItems?: (ticketId: string, items: { qty: number; unit?: string; description: string; unitCost: number }[]) => Promise<void>;
   onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean) => Promise<void>;
   isSubmitting?: boolean;
   officeOptions?: string[];
@@ -51,6 +52,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onTicketClick,
   onSchoolHeadApprove,
   onFinanceApprove,
+  onSaveBudgetItems,
   onSubmitRequest,
   isSubmitting = false,
   officeOptions,
@@ -732,6 +734,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setToastMessage(`Funding released and dispatch initiated for Job Order ${id}.`);
           setTimeout(() => setToastMessage(null), 3000);
         }}
+        onSaveBudgetItems={onSaveBudgetItems}
         onOverride={(id) => {
           if (selectedTicket) {
             handleOpenOverride(selectedTicket);

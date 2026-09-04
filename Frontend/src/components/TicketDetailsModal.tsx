@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { JobOrder } from "../types";
 import { getJobOrderCost, getJobOrderCostDisplay, formatPeso } from "../priceUtils";
+import { BudgetRequisitionItems } from "./BudgetRequisitionItems";
 import {
   X,
   Calendar,
@@ -33,6 +34,10 @@ interface TicketDetailsModalProps {
   onFinanceApprove?: (ticketId: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
   onSchoolHeadApprove?: (ticketId: string) => void;
   onDelete?: (ticketId: string) => void;
+  /** PPO-only: save the itemized budget requisition line items. Passing
+   * this in (alongside isAdmin) makes the item table editable; omit it
+   * (or don't pass isAdmin) to render it read-only for Finance/President. */
+  onSaveBudgetItems?: (ticketId: string, items: { qty: number; unit?: string; description: string; unitCost: number }[]) => Promise<void>;
 }
 
 export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
@@ -46,6 +51,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
   onFinanceApprove,
   onSchoolHeadApprove,
   onDelete,
+  onSaveBudgetItems,
 }) => {
   if (!isOpen || !ticket) return null;
 
@@ -429,6 +435,22 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Itemized Budget Requisition — only present in the ticket at all
+              for PPO/Finance/President (Dept/Staff never get this field from
+              the API), so this section simply doesn't render for them. */}
+          {ticket.budgetItems !== undefined && (
+            <BudgetRequisitionItems
+              items={ticket.budgetItems}
+              total={ticket.budgetItemsTotal ?? 0}
+              editable={isAdmin && !ticket.financeApproved && !!onSaveBudgetItems}
+              onSave={
+                isAdmin && onSaveBudgetItems
+                  ? (items) => onSaveBudgetItems(ticket.id, items)
+                  : undefined
+              }
+            />
+          )}
 
           {/* Allocation & Assigned Staff */}
           <div className="border border-[#E6DDD3] p-4 rounded-lg bg-[#F5F1EC]">
