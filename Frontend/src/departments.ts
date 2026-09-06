@@ -23,10 +23,15 @@ export const DEPARTMENT_OFFICES: DepartmentOffice[] = [
   { value: "school-clinic", fullName: "School Clinic Office" },
   { value: "cahs", fullName: "College of Allied Health Sciences (CAHS)" },
   { value: "clia-ed", fullName: "College of Liberal Arts-Education (CLIA-ED)" },
-  { value: "ccje", fullName: "College of Criminal Justice Education (CCJE)" },
+  { value: "ccje", fullName: "College of Criminal Justice Education (CCJE) — COSCA Annex Campus (Campus II)" },
   { value: "cbe", fullName: "College of Business Education (CBE)" },
   { value: "basic-ed-elem", fullName: "Basic Education (Elementary)" },
   { value: "basic-ed-jshs", fullName: "Basic Education (Junior and Senior High School levels)" },
+  { value: "library", fullName: "Library" },
+  { value: "midwifery", fullName: "Midwifery Department" },
+  { value: "radtech", fullName: "Radiologic Technology Department" },
+  { value: "sports-development", fullName: "Sports Development Office" },
+  { value: "annex-campus", fullName: "COSCA Annex Campus (Campus II)" },
 ];
 
 // Display-label lookup, keyed by the dropdown's internal value.

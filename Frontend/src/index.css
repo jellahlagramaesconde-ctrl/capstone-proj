@@ -252,3 +252,34 @@
 .seal-glow {
   animation: seal-glow 3s ease-in-out infinite;
 }
+
+/* Print-only content — see components/PrintableJobOrder.tsx.
+   Hidden on screen at all times (display: none), then flipped visible
+   only inside @media print, at which point everything else on the page
+   is hidden via visibility so the printout shows only this element. */
+.print-only {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .print-only,
+  .print-only * {
+    visibility: visible;
+  }
+
+  .print-only {
+    display: block !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+
+  @page {
+    margin: 0.4in;
+  }
+}

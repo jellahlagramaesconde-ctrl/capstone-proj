@@ -53,11 +53,26 @@ INSERT INTO departments (value, name) VALUES
     ('school-clinic', 'School Clinic Office'),
     ('cahs', 'College of Allied Health Sciences (CAHS)'),
     ('clia-ed', 'College of Liberal Arts-Education (CLIA-ED)'),
-    ('ccje', 'College of Criminal Justice Education (CCJE)'),
+    ('ccje', 'College of Criminal Justice Education (CCJE) — COSCA Annex Campus (Campus II)'),
     ('cbe', 'College of Business Education (CBE)'),
     ('basic-ed-elem', 'Basic Education (Elementary)'),
-    ('basic-ed-jshs', 'Basic Education (Junior and Senior High School levels)')
+    ('basic-ed-jshs', 'Basic Education (Junior and Senior High School levels)'),
+    ('library', 'Library'),
+    ('midwifery', 'Midwifery Department'),
+    ('radtech', 'Radiologic Technology Department'),
+    ('sports-development', 'Sports Development Office'),
+    ('annex-campus', 'COSCA Annex Campus (Campus II)')
 ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+
+-- Fixes the CCJE name on databases that already have the OLD name from a
+-- prior run of this file. The INSERT above upserts by matching on `name`,
+-- so simply changing the name string here would create a duplicate row
+-- instead of renaming the existing one — this explicit UPDATE (keyed on
+-- the stable `value` column instead) is what actually renames it safely,
+-- and is harmless/idempotent to re-run on every server startup.
+UPDATE departments
+SET name = 'College of Criminal Justice Education (CCJE) — COSCA Annex Campus (Campus II)'
+WHERE value = 'ccje';
 
 
 CREATE TABLE IF NOT EXISTS job_types (
