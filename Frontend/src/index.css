@@ -27,8 +27,14 @@
 
 @layer base {
   html {
-    font-size: 106.25%;
+    font-size: 100%;
     overflow-x: hidden;
+  }
+
+  @media (min-width: 640px) {
+    html {
+      font-size: 106.25%;
+    }
   }
 
   body {
