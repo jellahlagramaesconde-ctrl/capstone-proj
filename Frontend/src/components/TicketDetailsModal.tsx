@@ -22,7 +22,6 @@ import {
   RefreshCw,
   Trash2
 } from "lucide-react";
-
 interface TicketDetailsModalProps {
   isOpen: boolean;
   ticket: JobOrder | null;
@@ -34,6 +33,7 @@ interface TicketDetailsModalProps {
   onFinanceApprove?: (ticketId: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
   onSchoolHeadApprove?: (ticketId: string) => void;
   onDelete?: (ticketId: string) => void;
+  onSaveBudgetItems?: (ticketId: string, items: { qty: number; unit?: string; description: string; unitCost: number }[]) => Promise<void>; // ADD THIS
 }
 
 export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
@@ -47,6 +47,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
   onFinanceApprove,
   onSchoolHeadApprove,
   onDelete,
+  onSaveBudgetItems, // ADD THIS
 }) => {
   if (!isOpen || !ticket) return null;
 
