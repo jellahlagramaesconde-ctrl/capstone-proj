@@ -1,3 +1,14 @@
+export interface BudgetItem {
+  id: number;
+  jobOrderId: string;
+  itemNo: number;
+  qty: number;
+  unit?: string;
+  description: string;
+  unitCost: number;
+  cost: number;
+}
+
 export interface JobOrder {
   id: string;
   office: string;
@@ -28,16 +39,7 @@ export interface JobOrder {
   financeNotes?: string;
   // Itemized budget requisition breakdown — only present in API responses
   // for PPO/Finance/President (Dept/Staff never receive these fields).
-  budgetItems?: {
-    id: number;
-    jobOrderId: string;
-    itemNo: number;
-    qty: number;
-    unit?: string;
-    description: string;
-    unitCost: number;
-    cost: number;
-  }[];
+  budgetItems?: BudgetItem[];
   budgetItemsTotal?: number;
 }
 

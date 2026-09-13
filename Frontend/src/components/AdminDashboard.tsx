@@ -210,7 +210,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="bg-white border border-[#E6DDD3] rounded-lg p-5 flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-mono tracking-wider text-slate-700 uppercase font-bold">Needs PPO Review</span>
-            <h4 className="text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
+            <h4 className="text-2xl sm:text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
               {stats.pendingPPO}
             </h4>
             <p className="text-sm text-slate-600 mt-2 font-sans">Waiting for physical plant review</p>
@@ -224,7 +224,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="bg-white border border-[#E6DDD3] rounded-lg p-5 flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-mono tracking-wider text-slate-700 uppercase font-bold">Needs Funding</span>
-            <h4 className="text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
+            <h4 className="text-2xl sm:text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
               {stats.pendingFinance}
             </h4>
             <p className="text-sm text-slate-600 mt-2 font-sans">Approved by PPO, waiting for finance</p>
@@ -238,7 +238,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="bg-white border border-[#E6DDD3] rounded-lg p-5 flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-mono tracking-wider text-slate-700 uppercase font-bold">Work In Progress</span>
-            <h4 className="text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
+            <h4 className="text-2xl sm:text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
               {stats.inProgress}
             </h4>
             <p className="text-sm text-slate-600 mt-2 font-sans">Workers are currently fixing this</p>
@@ -252,7 +252,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="bg-white border border-[#E6DDD3] rounded-lg p-5 flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-mono tracking-wider text-slate-700 uppercase font-bold">Completed Repairs</span>
-            <h4 className="text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
+            <h4 className="text-2xl sm:text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
               {stats.completed}
             </h4>
             <p className="text-sm text-slate-600 mt-2 font-sans">Finished and verified</p>

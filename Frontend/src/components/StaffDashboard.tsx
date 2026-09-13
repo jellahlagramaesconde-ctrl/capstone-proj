@@ -109,7 +109,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
         <div className="bg-white border border-[#E6DDD3] rounded-lg p-5 flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-mono tracking-wider text-slate-700 uppercase">ASSIGNED & PENDING</span>
-            <h4 className="text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
+            <h4 className="text-2xl sm:text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
               {stats.assignedToday}
             </h4>
             <p className="text-sm text-slate-600 mt-2 font-sans">Awaiting dispatch launch</p>
@@ -123,7 +123,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
         <div className="bg-white border border-[#E6DDD3] rounded-lg p-5 flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-mono tracking-wider text-slate-700 uppercase">ACTIVE IN-PROGRESS</span>
-            <h4 className="text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
+            <h4 className="text-2xl sm:text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
               {stats.inProgress}
             </h4>
             <p className="text-sm text-slate-600 mt-2 font-sans">Currently working on issues</p>
@@ -137,7 +137,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
         <div className="bg-white border border-[#E6DDD3] rounded-lg p-5 flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-mono tracking-wider text-slate-700 uppercase">RESOLVED THIS WEEK</span>
-            <h4 className="text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
+            <h4 className="text-2xl sm:text-3xl font-mono font-bold text-[#241012] mt-1.5 leading-none">
               {stats.completed}
             </h4>
             <p className="text-sm text-slate-600 mt-2 font-sans">Sign-offs fully recorded</p>

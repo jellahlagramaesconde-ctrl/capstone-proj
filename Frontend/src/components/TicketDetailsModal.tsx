@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { JobOrder } from "../types";
 import { getJobOrderCost, getJobOrderCostDisplay, formatPeso } from "../priceUtils";
 import { PrintableJobOrder } from "./PrintableJobOrder";
+import { BudgetRequisitionItems } from "./BudgetRequisitionItems";
 import {
   X,
   Calendar,
@@ -33,7 +34,7 @@ interface TicketDetailsModalProps {
   onFinanceApprove?: (ticketId: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
   onSchoolHeadApprove?: (ticketId: string) => void;
   onDelete?: (ticketId: string) => void;
-  onSaveBudgetItems?: (ticketId: string, items: { qty: number; unit?: string; description: string; unitCost: number }[]) => Promise<void>; // ADD THIS
+  onSaveBudgetItems?: (ticketId: string, items: { qty: number; unit?: string; description: string; unitCost: number }[]) => Promise<void>;
 }
 
 export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
@@ -47,7 +48,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
   onFinanceApprove,
   onSchoolHeadApprove,
   onDelete,
-  onSaveBudgetItems, // ADD THIS
+  onSaveBudgetItems,
 }) => {
   if (!isOpen || !ticket) return null;
 
@@ -232,6 +233,17 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                 </div>
               )}
 
+            <BudgetRequisitionItems
+              items={ticket.budgetItems || []}
+              total={ticket.budgetItemsTotal || 0}
+              editable={isAdmin}
+              onSave={
+                isAdmin && onSaveBudgetItems
+                  ? (items) => onSaveBudgetItems(ticket.id, items)
+                  : undefined
+              }
+            />
+
             {/* Visual Priority Score Meter and Triage Variables */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch">
 
@@ -245,7 +257,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                   {/* Big dial circle */}
                   <div className="my-4 relative flex items-center justify-center">
                     <div className="w-24 h-24 rounded-full border-4 border-[#F0EAE4] flex items-center justify-center relative">
-                      <span className={`text-4xl font-mono font-black ${getPriorityTextClass(ticket.priorityScore)}`}>
+                      <span className={`text-3xl sm:text-4xl font-mono font-black ${getPriorityTextClass(ticket.priorityScore)}`}>
                         {ticket.priorityScore}
                       </span>
                     </div>
