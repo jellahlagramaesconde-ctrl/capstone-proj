@@ -73,11 +73,8 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
         : 0;
     const totalRegistryValue = sumJobOrderCosts(tickets);
     const highPriorityCount = pendingEndorsementTickets.filter((t) => t.priorityScore >= 60).length;
-    // Requests PPO approved via the emergency track, where your endorsement
-    // was auto-recorded rather than genuinely given — worth a distinct count
-    // so these don't blend invisibly into "endorsed".
-    const bypassedCount = tickets.filter((t) => t.emergencyBypassed).length;
-    return { pendingCount, endorsedCount, avgPriority, totalRegistryValue, highPriorityCount, bypassedCount };
+    const emergencyCount = pendingEndorsementTickets.filter((t) => t.isEmergency).length;
+    return { pendingCount, endorsedCount, avgPriority, totalRegistryValue, highPriorityCount, emergencyCount };
   }, [pendingEndorsementTickets, endorsedTickets, tickets]);
 
   // Priority tier: visual styling based on score
@@ -168,13 +165,13 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
                 </p>
               </div>
             )}
-            {stats.bypassedCount > 0 && (
+            {stats.emergencyCount > 0 && (
               <div className="bg-red-500/15 border border-red-300/30 rounded-lg px-3 py-1.5 text-center backdrop-blur-sm">
                 <p className="text-lg font-mono font-bold text-red-200 leading-none">
-                  {stats.bypassedCount}
+                  {stats.emergencyCount}
                 </p>
                 <p className="text-[9px] font-mono text-red-200/80 mt-0.5 uppercase tracking-widest whitespace-nowrap">
-                  PPO Bypassed You
+                  🚨 Emergency
                 </p>
               </div>
             )}
@@ -201,6 +198,24 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ══════════════════════════════════════════
+          EMERGENCY ALERT BANNER
+      ══════════════════════════════════════════ */}
+      {stats.emergencyCount > 0 && (
+        <div className="mx-3 sm:mx-5 mt-3 bg-red-600 text-white rounded-xl px-4 py-3 flex items-center gap-3 shadow-lg animate-pulse">
+          <span className="text-2xl shrink-0">🚨</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-mono font-bold text-sm leading-tight">
+              URGENT ACTION REQUIRED — {stats.emergencyCount} EMERGENCY {stats.emergencyCount === 1 ? "REQUEST" : "REQUESTS"} PENDING YOUR ENDORSEMENT
+            </p>
+            <p className="text-xs text-red-100 mt-0.5 font-sans">
+              Emergency requests require immediate endorsement to allow Finance to release funding and dispatch the technician.
+            </p>
+          </div>
+          <div className="w-2 h-2 rounded-full bg-white animate-ping shrink-0" />
+        </div>
+      )}
 
       <div className="p-3 sm:p-5">
 
@@ -370,7 +385,11 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
                     return (
                       <div
                         key={ticket.id}
-                        className={`bg-white border border-[#E6DDD3] border-l-4 ${tier.border} rounded-xl shadow-sm hover:shadow-md transition-all`}
+                        className={`bg-white border-l-4 ${tier.border} rounded-xl shadow-sm hover:shadow-md transition-all ${
+                          ticket.isEmergency
+                            ? "border-2 border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.15),0_0_16px_rgba(239,68,68,0.2)]"
+                            : "border border-[#E6DDD3]"
+                        }`}
                       >
                         {/* ── Clickable upper body ── */}
                         <div
@@ -601,7 +620,7 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
                                 EMERGENCY
                               </span>
                             )}
-                            {ticket.emergencyBypassed && (
+                            {false && (
                               <span
                                 className="text-[11px] font-mono font-bold px-1.5 py-px bg-red-600 text-white rounded-full"
                                 title="PPO approved directly — your endorsement was auto-recorded, not manually given"

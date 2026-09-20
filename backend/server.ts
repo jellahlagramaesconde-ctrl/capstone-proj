@@ -2274,120 +2274,84 @@ app.post("/api/job-orders/ppo-approve", authenticateToken, requireRole("PPO"), a
     // A request counts as an emergency if the Dept flagged it at submission,
     // OR the PPO is declaring it one now (e.g. Dept didn't tag it but PPO
     // recognizes it's urgent/safety-critical on review).
+    // Emergency requests still require all three approval stages:
+    // PPO → School Head → Finance. The difference is that ALL admin roles
+    // are notified simultaneously with 🚨 urgency so they can act immediately,
+    // rather than being notified sequentially. No approval stage is skipped.
     const isEmergency = Boolean(existing.rows[0].is_emergency) || Boolean(emergencyOverride);
 
-    if (isEmergency) {
-      // Emergency track: PPO approval alone is sufficient. Skip School Head
-      // and Finance sign-off, move straight to In Progress, and notify the
-      // assigned Staff member immediately so they can act right away.
-      const updateResult = await pool.query(
-        `UPDATE job_orders
-         SET ppo_approved = TRUE, school_head_approved = TRUE, finance_approved = TRUE,
-             is_emergency = TRUE, emergency_bypassed = TRUE, status = 'In Progress',
-             estimated_cost = COALESCE($2::numeric, estimated_cost)
-         WHERE id = $1 RETURNING *`,
-        [id, estimatedCost ?? null]
-      );
-      const ticket = mapJobOrderRow(updateResult.rows[0]);
-      const costInfo = ticket.estimatedCost !== undefined ? ` with estimated material/labor cost of ₱${ticket.estimatedCost.toLocaleString()}` : "";
-      const capacityNote = confirmOverride ? " ⚠️ Approved over the worker task capacity limit — PPO acknowledged the warning." : "";
-
-      await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
-        `Physical Plant Officer approved EMERGENCY Job Order ${id}${costInfo}. School Head/Finance sign-off exempted due to urgency. Dispatched directly to ${ticket.assignedStaff}.${capacityNote}`,
-        id,
-      ]);
-
-      // Real audit trail entry — this is what lets School Head/Finance (or
-      // anyone auditing later) see exactly who bypassed their sign-off and why,
-      // instead of only inferring it from three booleans flipping at once.
-      await pool.query(
-        `INSERT INTO approval_audit_log (job_order_id, actor_user_id, action, previous_value, new_value, reason, amount_php)
-         VALUES ($1, $2, 'EMERGENCY_OVERRIDE', $3, $4, $5, $6)`,
-        [
-          id,
-          req.user?.sub ?? null,
-          "Pending School Head + Finance sign-off",
-          "PPO-approved, School Head + Finance auto-set (bypassed)",
-          emergencyOverride ? "PPO flagged as emergency at approval time" : "Requester flagged as emergency at submission",
-          estimatedCost ?? null,
-        ]
-      );
-
-      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Staff', $3)", [
-        `n_${Date.now()}_stf_emg`,
-        `🚨 EMERGENCY dispatch: Job Order ${id} approved by PPO and requires immediate action.${costInfo}`,
-        id,
-      ]);
-      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
-        `n_${Date.now()}_dept_emg`,
-        `Your request ${id} was approved as an EMERGENCY by PPO${costInfo} and dispatched immediately to ${ticket.assignedStaff}, bypassing standard School Head/Finance review.`,
-        id,
-      ]);
-      void notifyDeptByEmail(
-        ticket.office,
-        `🚨 Emergency Job Order Approved — ${id}`,
-        `Your request ${id} was approved as an EMERGENCY by PPO${costInfo} and dispatched immediately to ${ticket.assignedStaff}, bypassing standard School Head/Finance review.`,
-        id
-      );
-      // Previously missing: School Head and Finance had no idea a request
-      // bypassed them until they happened to notice it in their "already
-      // handled" list. They now get the same real-time notification Dept/Staff do.
-      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'President', $3)", [
-        `n_${Date.now()}_head_emg`,
-        `🚨 Job Order ${id} (${ticket.office}) was approved by PPO under the emergency track${costInfo} — your endorsement was bypassed. Dispatched directly to ${ticket.assignedStaff}.`,
-        id,
-      ]);
-      void notifyRoleByEmail(
-        "President",
-        `🚨 Emergency Approval Bypassed Your Endorsement — ${id}`,
-        `Job Order ${id} (${ticket.office}) was approved by PPO under the emergency track${costInfo} — your endorsement was bypassed. Dispatched directly to ${ticket.assignedStaff}.`,
-        id
-      );
-      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Finance', $3)", [
-        `n_${Date.now()}_fin_emg`,
-        `🚨 Job Order ${id} was approved by PPO under the emergency track${costInfo} — Finance sign-off was bypassed and funding was auto-released. Dispatched directly to ${ticket.assignedStaff}.`,
-        id,
-      ]);
-      void notifyRoleByEmail(
-        "Finance",
-        `🚨 Emergency Approval Bypassed Finance Sign-off — ${id}`,
-        `Job Order ${id} was approved by PPO under the emergency track${costInfo} — Finance sign-off was bypassed and funding was auto-released. Dispatched directly to ${ticket.assignedStaff}.`,
-        id
-      );
-
-      // Fire-and-forget: don't await inline in the response path, so a slow
-      // or unreachable email provider never delays the PPO's emergency approval.
-      void notifyStaffOfDispatch(ticket);
-
-      return res.json(ticket);
-    }
-
-    // Normal track: unchanged — PPO approval forwards to School Head, then Finance,
-    // and Staff is only notified once Finance funds it.
+    // PPO approve — same SQL for both emergency and normal: only ppo_approved
+    // is set here. School Head and Finance must still review and sign off.
     const updateResult = await pool.query(
-      "UPDATE job_orders SET ppo_approved = TRUE, estimated_cost = COALESCE($2::numeric, estimated_cost) WHERE id = $1 RETURNING *",
-      [id, estimatedCost ?? null]
+      `UPDATE job_orders
+       SET ppo_approved = TRUE,
+           is_emergency = CASE WHEN $2 THEN TRUE ELSE is_emergency END,
+           estimated_cost = COALESCE($3::numeric, estimated_cost)
+       WHERE id = $1 RETURNING *`,
+      [id, Boolean(emergencyOverride), estimatedCost ?? null]
     );
     const ticket = mapJobOrderRow(updateResult.rows[0]);
 
     const costInfo = ticket.estimatedCost !== undefined ? ` with estimated material/labor cost of ₱${ticket.estimatedCost.toLocaleString()}` : "";
     const capacityNote = confirmOverride ? " ⚠️ Approved over the worker task capacity limit — PPO acknowledged the warning." : "";
+    const emergencyTag = isEmergency ? "🚨 EMERGENCY — " : "";
+
     await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
-      `Physical Plant Officer verified and approved Job Order ${id}${costInfo}. Forwarded to School Head for administrative endorsement.${capacityNote}`,
+      `${emergencyTag}Physical Plant Officer verified and approved Job Order ${id}${costInfo}. Forwarded to School Head for administrative endorsement.${capacityNote}`,
       id,
     ]);
-    await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'President', $3)", [
-      `n_${Date.now()}_ppo`,
-      `Job Order ${id} verified by PPO${costInfo}. Awaiting School Head endorsement.`,
-      id,
-    ]);
-    void notifyRoleByEmail("President", `Job Order Ready for Your Endorsement — ${id}`, `Job Order ${id} verified by PPO${costInfo}. Awaiting School Head endorsement.`, id);
-    await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
-      `n_${Date.now()}_dept`,
-      `Your request ${id} has been verified & approved by PPO${costInfo}. Ready for School Head administrative endorsement.`,
-      id,
-    ]);
-    void notifyDeptByEmail(ticket.office, `Your Request Approved by PPO — ${id}`, `Your request ${id} has been verified & approved by PPO${costInfo}. Ready for School Head administrative endorsement.`, id);
+
+    if (isEmergency) {
+      // Emergency: alert ALL admin roles at once so they can act without delay.
+      // Each role must still take their own action — nothing is skipped.
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'President', $3)", [
+        `n_${Date.now()}_head_emg`,
+        `🚨 URGENT ENDORSEMENT REQUIRED — Job Order ${id} (${ticket.office}) has been approved by PPO as an EMERGENCY${costInfo}. Please endorse immediately so Finance can release funding.`,
+        id,
+      ]);
+      void notifyRoleByEmail(
+        "President",
+        `🚨 Urgent Endorsement Required — Emergency Job Order ${id}`,
+        `Job Order ${id} (${ticket.office}) has been approved by PPO as an EMERGENCY${costInfo}. Your endorsement is needed immediately so Finance can release funding and dispatch the technician.`,
+        id
+      );
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Finance', $3)", [
+        `n_${Date.now()}_fin_emg`,
+        `🚨 HEADS UP — Emergency Job Order ${id} (${ticket.office}) has been PPO-approved${costInfo}. It will arrive at your queue once the School Head endorses. Please be ready to release funding immediately.`,
+        id,
+      ]);
+      void notifyRoleByEmail(
+        "Finance",
+        `🚨 Heads-Up: Emergency Job Order Coming — ${id}`,
+        `Emergency Job Order ${id} (${ticket.office}) has been approved by PPO${costInfo}. It will reach your funding queue as soon as the School Head endorses. Please act immediately once it arrives.`,
+        id
+      );
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
+        `n_${Date.now()}_dept_emg`,
+        `🚨 Your EMERGENCY request ${id} has been verified and approved by the PPO${costInfo}. The School Head has been urgently notified to endorse it. You will be updated at each stage.`,
+        id,
+      ]);
+      void notifyDeptByEmail(
+        ticket.office,
+        `🚨 Emergency Request Approved by PPO — ${id}`,
+        `Your emergency request ${id} has been verified and approved by the Physical Plant Officer${costInfo}. The School Head and Finance team have been urgently notified. You will receive updates at each approval stage.`,
+        id
+      );
+    } else {
+      // Normal track: sequential notification — PPO → School Head only.
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'President', $3)", [
+        `n_${Date.now()}_ppo`,
+        `Job Order ${id} verified by PPO${costInfo}. Awaiting School Head endorsement.`,
+        id,
+      ]);
+      void notifyRoleByEmail("President", `Job Order Ready for Your Endorsement — ${id}`, `Job Order ${id} verified by PPO${costInfo}. Awaiting School Head endorsement.`, id);
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
+        `n_${Date.now()}_dept`,
+        `Your request ${id} has been verified & approved by PPO${costInfo}. Ready for School Head administrative endorsement.`,
+        id,
+      ]);
+      void notifyDeptByEmail(ticket.office, `Your Request Approved by PPO — ${id}`, `Your request ${id} has been verified & approved by PPO${costInfo}. Ready for School Head administrative endorsement.`, id);
+    }
 
     res.json(ticket);
   } catch (err: any) {

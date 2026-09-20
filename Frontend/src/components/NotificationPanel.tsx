@@ -71,20 +71,31 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
         <div className="max-h-80 overflow-y-auto p-2 space-y-1.5">
           {notifications.slice(0, maxVisible * 4).map((notif) => {
             const isUnread = !readIds.has(notif.id);
+            const isEmergency = /emergency|🚨/i.test(notif.message);
             return (
               <div
                 key={notif.id}
-                className={`flex items-start gap-2.5 p-3 rounded-lg text-xs transition-colors ${isUnread
-                  ? "bg-[#F5F1EC] hover:bg-[#F0EAE4]"
-                  : "bg-white hover:bg-[#FBF8F5] opacity-70"
-                  }`}
+                className={`flex items-start gap-2.5 p-3 rounded-lg text-xs transition-colors ${
+                  isEmergency
+                    ? isUnread
+                      ? "bg-red-50 border border-red-200 hover:bg-red-100"
+                      : "bg-red-50/40 border border-red-100 opacity-80"
+                    : isUnread
+                    ? "bg-[#F5F1EC] hover:bg-[#F0EAE4]"
+                    : "bg-white hover:bg-[#FBF8F5] opacity-70"
+                }`}
               >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${isUnread ? "bg-[#8C2331]" : "bg-[#DDD2C8]"
-                    }`}
-                />
+                {isEmergency ? (
+                  <span className={`text-sm mt-0.5 shrink-0 ${isUnread ? "animate-pulse" : "opacity-60"}`}>🚨</span>
+                ) : (
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${isUnread ? "bg-[#8C2331]" : "bg-[#DDD2C8]"}`}
+                  />
+                )}
                 <div className="min-w-0 flex-1">
-                  <p className="text-slate-700 leading-relaxed font-sans">{notif.message}</p>
+                  <p className={`leading-relaxed font-sans ${isEmergency ? "text-red-700 font-semibold" : "text-slate-700"}`}>
+                    {notif.message}
+                  </p>
                   <div className="flex gap-3 text-[11px] text-slate-500 font-mono mt-1.5">
                     <span>{new Date(notif.timestamp).toLocaleDateString()}</span>
                     <span>{new Date(notif.timestamp).toLocaleTimeString()}</span>

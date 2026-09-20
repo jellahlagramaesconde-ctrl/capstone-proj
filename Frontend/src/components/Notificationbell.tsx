@@ -35,6 +35,9 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter((n) => !readIds.has(n.id)).length;
+  const hasEmergencyUnread = notifications.some(
+    (n) => !readIds.has(n.id) && /emergency|🚨/i.test(n.message)
+  );
 
   // Close on click-outside and on Escape, same as any standard dropdown.
   useEffect(() => {
@@ -60,8 +63,12 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className="relative p-2 rounded-lg bg-white border border-[#E6DDD3] hover:bg-[#F0EAE4] text-[#6B1420] hover:text-[#241012] shadow-xs transition-colors cursor-pointer flex items-center justify-center"
-        title="Notifications"
+        className={`relative p-2 rounded-lg border shadow-xs transition-colors cursor-pointer flex items-center justify-center ${
+          hasEmergencyUnread
+            ? "bg-red-50 border-red-400 text-red-600 hover:bg-red-100 animate-pulse"
+            : "bg-white border-[#E6DDD3] hover:bg-[#F0EAE4] text-[#6B1420] hover:text-[#241012]"
+        }`}
+        title={hasEmergencyUnread ? "🚨 Emergency notifications require attention!" : "Notifications"}
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (

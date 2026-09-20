@@ -73,9 +73,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Local PPO Cost Input State
   const [ppoCosts, setPpoCosts] = useState<Record<string, string>>({});
 
-  // Local PPO "treat as emergency" override checkbox state (for requests Dept
-  // didn't flag but the PPO judges urgent on review)
-  const [ppoEmergencyOverride, setPpoEmergencyOverride] = useState<Record<string, boolean>>({});
+  // (Emergency override removed — emergency status is set by the Department at submission.
+  //  All emergency requests follow the full 3-stage approval: PPO → President → Finance.)
 
   // (Finance cost inputs removed — Finance approves via their own portal, not here)
 
@@ -387,13 +386,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="space-y-4">
               {filteredAndSortedTickets.length > 0 ? (
                 filteredAndSortedTickets.map((ticket) => (
-                  <div key={ticket.id} className={`relative group p-2 rounded-xl transition-all ${ticket.isEmergency ? "bg-red-50/60 border-2 border-red-400/50" : "bg-[#F5F1EC]/50 border border-[#F0EAE4]"}`}>
+                  <div key={ticket.id} className={`relative group p-2 rounded-xl transition-all ${ticket.isEmergency ? "bg-red-50/90 border-2 border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.15),0_0_16px_rgba(239,68,68,0.2)]" : "bg-[#F5F1EC]/50 border border-[#F0EAE4]"}`}>
                     <TicketStub
                       ticket={ticket}
                       isAdmin={true}
                       onApprove={(id) => {
                         const est = ppoCosts[id] ? Number(ppoCosts[id]) : undefined;
-                        onApprove(id, est, ppoEmergencyOverride[id]);
+                        onApprove(id, est, undefined);
                         setToastMessage(`Job Order ${id} verified and approved by Physical Plant.`);
                         setTimeout(() => setToastMessage(null), 3000);
                       }}
@@ -435,16 +434,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {/* 2. PPO Verify action */}
                         {activeSubTab === "ppo" && (
                           <div className="flex flex-wrap items-center gap-2 w-full" onClick={(e) => e.stopPropagation()}>
-                            {!ticket.isEmergency && (
-                              <label className="flex items-center gap-1.5 text-[11px] font-sans text-safety-amber bg-safety-amber/8 border border-safety-amber/15 rounded-lg px-2.5 h-8 cursor-pointer select-none font-medium whitespace-nowrap">
-                                <input
-                                  type="checkbox"
-                                  checked={!!ppoEmergencyOverride[ticket.id]}
-                                  onChange={(e) => setPpoEmergencyOverride({ ...ppoEmergencyOverride, [ticket.id]: e.target.checked })}
-                                  className="accent-safety-amber cursor-pointer"
-                                />
-                                Emergency
-                              </label>
+                            {ticket.isEmergency && (
+                              <span className="flex items-center gap-1.5 text-[11px] font-mono font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-2.5 h-8 animate-pulse whitespace-nowrap">
+                                🚨 Requires immediate endorsement after approval
+                              </span>
                             )}
                             <div className="flex items-center bg-white border border-[#E6DDD3] rounded-lg px-2.5 h-8">
                               <span className="text-xs text-slate-400 font-mono mr-1">₱</span>
@@ -460,19 +453,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const estCost = ppoCosts[ticket.id] ? Number(ppoCosts[ticket.id]) : undefined;
-                                const emergency = ticket.isEmergency || ppoEmergencyOverride[ticket.id];
-                                onApprove(ticket.id, estCost, emergency);
+                                onApprove(ticket.id, estCost, ticket.isEmergency);
                                 setToastMessage(
-                                  emergency
-                                    ? `Job Order ${ticket.id} approved as EMERGENCY — dispatched directly to staff.`
+                                  ticket.isEmergency
+                                    ? `🚨 EMERGENCY Job Order ${ticket.id} approved — School Head & Finance urgently notified.`
                                     : `Job Order ${ticket.id} approved by PPO.`
                                 );
-                                setTimeout(() => setToastMessage(null), 3000);
+                                setTimeout(() => setToastMessage(null), 4000);
                               }}
-                              className="ml-auto px-3 h-8 bg-[#6B1420] hover:bg-[#7D1A28] text-white text-xs font-mono font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer whitespace-nowrap"
+                              className={`ml-auto px-3 h-8 text-white text-xs font-mono font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer whitespace-nowrap ${
+                                ticket.isEmergency
+                                  ? "bg-red-600 hover:bg-red-700"
+                                  : "bg-[#6B1420] hover:bg-[#7D1A28]"
+                              }`}
                             >
                               <CheckCircle className="w-3.5 h-3.5" />
-                              Approve (PPO)
+                              {ticket.isEmergency ? "Approve 🚨 Emergency" : "Approve (PPO)"}
                             </button>
                           </div>
                         )}

@@ -155,19 +155,15 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
           {/* Scrollable Form Body */}
           <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 overflow-y-auto flex-1">
 
-            {/* Emergency bypass banner — shown to every role (PPO, School Head,
-              Finance, Dept, Staff) so it's never ambiguous that School Head
-              and Finance sign-off was auto-set rather than genuinely reviewed. */}
-            {ticket.emergencyBypassed && (
+            {ticket.isEmergency && (
               <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg p-4">
                 <ShieldAlert className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                 <div className="text-sm font-sans leading-relaxed">
-                  <span className="font-bold text-red-700">Emergency Bypass — PPO Approved Directly.</span>
+                  <span className="font-bold text-red-700">🚨 Emergency Request — All Admins Urgently Notified.</span>
                   <span className="text-red-700/90">
-                    {" "}This request skipped normal School Head and Finance review. The Physical
-                    Plant Officer approved it under the emergency protocol and dispatched staff
-                    immediately. School Head/Finance sign-off shown below was auto-recorded, not
-                    a manual endorsement.
+                    {" "}This request was flagged as an emergency. The PPO, School Head, and Finance team
+                    were all notified simultaneously so they can act without delay.
+                    Standard approval stages (PPO → School Head → Finance) still apply and must each be completed.
                   </span>
                 </div>
               </div>

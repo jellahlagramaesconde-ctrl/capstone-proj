@@ -105,10 +105,9 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
     const fundedCount = fundedTickets.length;
     const totalDisbursed = sumJobOrderCosts(fundedTickets);
     const pendingEstimate = sumJobOrderCosts(pendingFundingTickets);
-    // Requests PPO approved via the emergency track, where Finance's release
-    // was auto-recorded rather than a genuine funding decision.
-    const bypassedCount = tickets.filter((t) => t.emergencyBypassed).length;
-    return { awaitingCount, fundedCount, totalDisbursed, pendingEstimate, bypassedCount };
+    // Emergency requests awaiting Finance sign-off — need immediate attention.
+    const emergencyCount = pendingFundingTickets.filter((t) => t.isEmergency).length;
+    return { awaitingCount, fundedCount, totalDisbursed, pendingEstimate, emergencyCount };
   }, [pendingFundingTickets, fundedTickets, tickets]);
 
   // ── Helpers ───────────────────────────────────────────
@@ -185,13 +184,13 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                 </p>
               </div>
             )}
-            {stats.bypassedCount > 0 && (
+            {stats.emergencyCount > 0 && (
               <div className="bg-red-500/15 border border-red-300/30 rounded-lg px-3 py-1.5 text-center backdrop-blur-sm">
                 <p className="text-lg font-mono font-bold text-red-200 leading-none">
-                  {stats.bypassedCount}
+                  {stats.emergencyCount}
                 </p>
                 <p className="text-[9px] font-mono text-red-200/80 mt-0.5 uppercase tracking-widest whitespace-nowrap">
-                  PPO Bypassed You
+                  🚨 Urgent
                 </p>
               </div>
             )}
@@ -217,6 +216,24 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ════════════════════════════════════════════
+          EMERGENCY ALERT BANNER
+      ════════════════════════════════════════════ */}
+      {stats.emergencyCount > 0 && (
+        <div className="mx-3 sm:mx-5 mt-3 bg-red-600 text-white rounded-xl px-4 py-3 flex items-center gap-3 shadow-lg animate-pulse">
+          <span className="text-2xl shrink-0">🚨</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-mono font-bold text-sm leading-tight">
+              URGENT — {stats.emergencyCount} EMERGENCY {stats.emergencyCount === 1 ? "REQUEST REQUIRES" : "REQUESTS REQUIRE"} IMMEDIATE FUNDING RELEASE
+            </p>
+            <p className="text-xs text-red-100 mt-0.5 font-sans">
+              These requests have been endorsed by the School President. Release funding now to dispatch the maintenance technician.
+            </p>
+          </div>
+          <div className="w-2 h-2 rounded-full bg-white animate-ping shrink-0" />
+        </div>
+      )}
 
       <div className="p-3 sm:p-5">
 
@@ -422,7 +439,11 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                     return (
                       <div
                         key={ticket.id}
-                        className="bg-white border border-[#E6DDD3] rounded-xl shadow-sm hover:shadow-md transition-all"
+                        className={`rounded-xl shadow-sm hover:shadow-md transition-all ${
+                          ticket.isEmergency
+                            ? "bg-red-50/60 border-2 border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.15),0_0_16px_rgba(239,68,68,0.2)]"
+                            : "bg-white border border-[#E6DDD3]"
+                        }`}
                       >
                         {/* ── Clickable header ── */}
                         <div
@@ -692,17 +713,7 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                           className="hover:bg-[#F7F4F0] cursor-pointer transition-colors group"
                         >
                           <td className="px-5 py-4 font-mono font-bold text-[#241012] whitespace-nowrap">
-                            <div className="flex items-center gap-1.5">
-                              {ticket.id}
-                              {ticket.emergencyBypassed && (
-                                <span
-                                  className="text-[10px] font-mono font-bold px-1.5 py-px bg-red-600 text-white rounded-full"
-                                  title="PPO approved directly — your fund release was auto-recorded, not a manual decision"
-                                >
-                                  BYPASS
-                                </span>
-                              )}
-                            </div>
+                            {ticket.id}
                           </td>
                           <td className="px-5 py-4 font-semibold text-[#2B1210]">{ticket.office}</td>
                           <td className="px-5 py-4">
