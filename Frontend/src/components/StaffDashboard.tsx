@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { JobOrder, Notification } from "../types";
 import { TicketStub } from "./TicketStub";
 import { TicketDetailsModal } from "./TicketDetailsModal";
-import { Wrench, Calendar, AlertTriangle, CheckCircle, ShieldAlert, Sparkles, History, ChevronRight, FileText } from "lucide-react";
+import { Wrench, Calendar, AlertTriangle, CheckCircle, ShieldAlert, Sparkles, History, ChevronRight, FileText, Banknote, ArrowRight } from "lucide-react";
 import { getJobOrderCostDisplay, formatPeso, sumJobOrderCosts } from "../priceUtils";
 
 interface StaffDashboardProps {
@@ -204,6 +204,24 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
             <span className="text-xs font-mono text-[#8C2331] bg-[#8C2331]/10 px-2 py-0.5 rounded font-bold shrink-0">
               TECHNICIAN FILE
             </span>
+          </div>
+
+          {/* ── Funding Pipeline Info Line ───────────────────────────────────────
+              Explains to maintenance staff that tasks only appear here after
+              Finance releases funding — mirrors the UML flow:
+              Finance (Release Funding) → Maintenance Staff (View Assigned Tasks)
+          ─────────────────────────────────────────────────────────────────────── */}
+          <div className="mt-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5">
+            <Banknote className="w-4 h-4 text-emerald-600 shrink-0" />
+            <div className="flex items-center gap-1.5 flex-wrap text-xs font-mono text-emerald-800">
+              <span className="font-bold uppercase tracking-wide">Funding Pipeline</span>
+              <span className="text-emerald-500">·</span>
+              <span>Finance Office releases funding</span>
+              <ArrowRight className="w-3 h-3 text-emerald-500 shrink-0" />
+              <span>Job order is dispatched</span>
+              <ArrowRight className="w-3 h-3 text-emerald-500 shrink-0" />
+              <span className="font-semibold text-emerald-700">Task appears here for you to action</span>
+            </div>
           </div>
 
           {/* Category filter pills — ALL / ELECTRICAL / PLUMBING / HVAC / CARPENTRY */}
