@@ -1816,26 +1816,37 @@ app.post("/api/job-orders", authenticateToken, requireRole("Dept", "PPO", "Presi
           invent details it doesn't support.
         `;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                jobType: { type: Type.STRING },
-                safetyRisk: { type: Type.INTEGER },
-                operationalImpact: { type: Type.INTEGER },
-                urgency: { type: Type.INTEGER },
-                peopleAffected: { type: Type.INTEGER },
-                resourceCost: { type: Type.INTEGER },
-                explanation: { type: Type.STRING },
+        // Race the Gemini call against an 8-second timeout so a slow or
+        // rate-limited API never blocks the submission indefinitely.
+        // If the timeout fires first we throw and the catch block below
+        // falls back immediately to the local rule-based parser.
+        const GEMINI_TIMEOUT_MS = 8000;
+        const geminiTimeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Gemini timed out after ${GEMINI_TIMEOUT_MS}ms — using rule-based fallback`)), GEMINI_TIMEOUT_MS)
+        );
+        const response = await Promise.race([
+          ai.models.generateContent({
+            model: "gemini-3.5-flash",
+            contents: prompt,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  jobType: { type: Type.STRING },
+                  safetyRisk: { type: Type.INTEGER },
+                  operationalImpact: { type: Type.INTEGER },
+                  urgency: { type: Type.INTEGER },
+                  peopleAffected: { type: Type.INTEGER },
+                  resourceCost: { type: Type.INTEGER },
+                  explanation: { type: Type.STRING },
+                },
+                required: ["jobType", "safetyRisk", "operationalImpact", "urgency", "peopleAffected", "resourceCost", "explanation"],
               },
-              required: ["jobType", "safetyRisk", "operationalImpact", "urgency", "peopleAffected", "resourceCost", "explanation"],
             },
-          },
-        });
+          }),
+          geminiTimeoutPromise,
+        ]);
 
         const dataText = response.text ? response.text.trim() : "";
         const parsed = JSON.parse(dataText);

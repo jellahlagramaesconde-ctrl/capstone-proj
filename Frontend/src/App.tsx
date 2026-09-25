@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { JobOrder, Staff, LogEntry, type Notification, Role } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
@@ -1037,12 +1037,20 @@ export default function App() {
   const handleSubmitRequest = async (office: string, description: string, requestedByName: string, isEmergency: boolean = false, photoUrls?: string[]) => {
     setIsSubmitting(true);
     setNetworkError(null);
+    // 30-second hard timeout — the backend AI parsing step (Gemini) has its
+    // own 8-second internal timeout and falls back to rule-based parsing,
+    // so the full round-trip should never take more than ~10-12s in practice.
+    // This acts as a final safety net so the UI never spins indefinitely.
+    const controller = new AbortController();
+    const submitTimeout = setTimeout(() => controller.abort(), 30000);
     try {
       const res = await authedFetch("/api/job-orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ office, description, requestedByName, isEmergency, photoUrls }),
+        signal: controller.signal,
       });
+      clearTimeout(submitTimeout);
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => null);
@@ -1053,8 +1061,12 @@ export default function App() {
 
       await fetchDatabase();
     } catch (err: any) {
+      clearTimeout(submitTimeout);
       console.error(err);
-      const message = err?.message || "Error submitting job order.";
+      const isTimeout = err?.name === "AbortError";
+      const message = isTimeout
+        ? "The request took too long. The server may be starting up — please try again in a moment."
+        : (err?.message || "Error submitting job order.");
       setNetworkError(message);
       alert(`Error: could not submit this request. ${message}`);
     } finally {
