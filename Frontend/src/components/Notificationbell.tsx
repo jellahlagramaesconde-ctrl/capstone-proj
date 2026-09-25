@@ -12,16 +12,32 @@ interface NotificationBellProps {
 }
 
 // Returns true when the viewport is narrower than Tailwind's `sm` (640 px).
+// We use document.documentElement.clientWidth (the CSS layout-viewport width)
+// instead of window.innerWidth so that DevTools responsive / device emulation
+// is detected correctly — window.innerWidth can still report the full OS
+// window size even when the simulated viewport is narrow.
 function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < 640 : false
-  );
+  const getWidth = () =>
+    typeof document !== "undefined"
+      ? document.documentElement.clientWidth
+      : typeof window !== "undefined"
+      ? window.innerWidth
+      : 1024;
+
+  const [isMobile, setIsMobile] = useState(() => getWidth() < 640);
+
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 639px)");
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    const handler = () => setIsMobile(getWidth() < 640);
     mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
+    // Also listen to resize in case clientWidth changes without a mq event
+    window.addEventListener("resize", handler);
+    return () => {
+      mq.removeEventListener("change", handler);
+      window.removeEventListener("resize", handler);
+    };
   }, []);
+
   return isMobile;
 }
 
@@ -108,7 +124,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
 
         {/* ── Desktop Dropdown ────────────────────────────────────── */}
         {isOpen && !isMobile && (
-          <div className="absolute right-0 mt-3 w-[22rem] z-50">
+          <div className="absolute right-0 mt-3 w-[min(22rem,90vw)] z-50">
             {/* Caret */}
             <div className="absolute -top-1.5 right-4 w-3 h-3 bg-[#FBF8F5] border-t border-l border-[#E6DDD3] rotate-45 z-10" />
             <div className="rounded-xl shadow-2xl overflow-hidden border border-[#E6DDD3]">
