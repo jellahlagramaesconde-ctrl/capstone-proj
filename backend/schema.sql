@@ -42,27 +42,66 @@ CREATE TABLE IF NOT EXISTS departments (
 ALTER TABLE departments ADD COLUMN IF NOT EXISTS value VARCHAR(50);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_departments_value ON departments(value);
 
+-- Before upserting, clear any stale value assignments on rows whose value
+-- slug belongs to a DIFFERENT department name. This prevents the
+-- idx_departments_value unique constraint from firing when the INSERT
+-- below tries to assign the correct slug to the correct row.
+-- Completely idempotent: only NULLs out values that are misassigned.
+UPDATE departments
+SET value = NULL
+WHERE value IN (
+    'vpaa','cfo','registrar','finance-accounting','guidance-counseling',
+    'scholarship','nstp','school-clinic','cahs','clia-ed','ccje','cbe',
+    'basic-ed-elem','basic-ed-jshs','library','midwifery','radtech',
+    'sports-development','annex-campus'
+)
+AND name NOT IN (
+    'Office of the Vice President for Academic Affairs (VPAA)',
+    'Christian Formation Office (CFO)',
+    'Registrar Office',
+    'Finance and Accounting Department',
+    'Guidance and Counseling Office',
+    'Scholarship Office',
+    'National Service Training Program (NSTP)',
+    'School Clinic Office',
+    'College of Allied Health Sciences (CAHS)',
+    'College of Liberal Arts-Education (CLIA-ED)',
+    'College of Criminal Justice Education (CCJE) — COSCA Annex Campus (Campus II)',
+    'College of Business Education (CBE)',
+    'Basic Education (Elementary)',
+    'Basic Education (Junior and Senior High School levels)',
+    'Library',
+    'Midwifery Department',
+    'Radiologic Technology Department',
+    'Sports Development Office',
+    'COSCA Annex Campus (Campus II)'
+);
+
+-- Upsert on `name` (the UNIQUE NOT NULL column) and fill in the value slug.
+-- ON CONFLICT (value) is NOT used here because some rows (auto-created from
+-- job_orders.office) may have value=NULL and would not be matched.
 INSERT INTO departments (value, name) VALUES
-    ('vpaa', 'Office of the Vice President for Academic Affairs (VPAA)'),
-    ('cfo', 'Christian Formation Office (CFO)'),
-    ('registrar', 'Registrar Office'),
+    ('vpaa',               'Office of the Vice President for Academic Affairs (VPAA)'),
+    ('cfo',                'Christian Formation Office (CFO)'),
+    ('registrar',          'Registrar Office'),
     ('finance-accounting', 'Finance and Accounting Department'),
-    ('guidance-counseling', 'Guidance and Counseling Office'),
-    ('scholarship', 'Scholarship Office'),
-    ('nstp', 'National Service Training Program (NSTP)'),
-    ('school-clinic', 'School Clinic Office'),
-    ('cahs', 'College of Allied Health Sciences (CAHS)'),
-    ('clia-ed', 'College of Liberal Arts-Education (CLIA-ED)'),
-    ('ccje', 'College of Criminal Justice Education (CCJE) — COSCA Annex Campus (Campus II)'),
-    ('cbe', 'College of Business Education (CBE)'),
-    ('basic-ed-elem', 'Basic Education (Elementary)'),
-    ('basic-ed-jshs', 'Basic Education (Junior and Senior High School levels)'),
-    ('library', 'Library'),
-    ('midwifery', 'Midwifery Department'),
-    ('radtech', 'Radiologic Technology Department'),
+    ('guidance-counseling','Guidance and Counseling Office'),
+    ('scholarship',        'Scholarship Office'),
+    ('nstp',               'National Service Training Program (NSTP)'),
+    ('school-clinic',      'School Clinic Office'),
+    ('cahs',               'College of Allied Health Sciences (CAHS)'),
+    ('clia-ed',            'College of Liberal Arts-Education (CLIA-ED)'),
+    ('ccje',               'College of Criminal Justice Education (CCJE) — COSCA Annex Campus (Campus II)'),
+    ('cbe',                'College of Business Education (CBE)'),
+    ('basic-ed-elem',      'Basic Education (Elementary)'),
+    ('basic-ed-jshs',      'Basic Education (Junior and Senior High School levels)'),
+    ('library',            'Library'),
+    ('midwifery',          'Midwifery Department'),
+    ('radtech',            'Radiologic Technology Department'),
     ('sports-development', 'Sports Development Office'),
-    ('annex-campus', 'COSCA Annex Campus (Campus II)')
-ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+    ('annex-campus',       'COSCA Annex Campus (Campus II)')
+ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
+    WHERE departments.value IS DISTINCT FROM EXCLUDED.value;
 
 -- Fixes the CCJE name on databases that already have the OLD name from a
 -- prior run of this file. The INSERT above upserts by matching on `name`,
