@@ -45,10 +45,10 @@ export const PrintableJobOrder: React.FC<PrintableJobOrderProps> = ({ ticket }) 
       style={{
         color: "#000",
         background: "#fff",
-        padding: "0.55in 0.65in",
+        padding: "0",
         fontFamily: "Arial, sans-serif",
         fontSize: "12px",
-        width: "8.5in",
+        width: "100%",
         boxSizing: "border-box",
       }}
     >

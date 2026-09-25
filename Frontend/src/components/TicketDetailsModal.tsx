@@ -115,7 +115,39 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
+    // Open a clean blank window so the modal backdrop / blur / stacking
+    // contexts can't bleed into the printout the way window.print() does.
+    const el = document.querySelector<HTMLElement>(".print-only");
+    if (!el) { window.print(); return; }
+
+    const printWin = window.open("", "_blank", "width=960,height=720");
+    if (!printWin) { window.print(); return; }
+
+    printWin.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Job Order – ${ticket.id}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 12px;
+           color: #000; background: #fff; }
+    @page { margin: 0.5in; size: letter portrait; }
+    @media print {
+      body { margin: 0; }
+    }
+  </style>
+</head>
+<body>${el.innerHTML}</body>
+</html>`);
+
+    printWin.document.close();
+    printWin.focus();
+    // Small delay lets the browser finish laying out before the print dialog
+    setTimeout(() => {
+      printWin.print();
+      printWin.close();
+    }, 300);
   };
 
   return (
