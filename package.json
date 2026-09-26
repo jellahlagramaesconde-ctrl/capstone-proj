@@ -8,6 +8,8 @@
         "start": "npm --prefix backend run start"
     },
     "dependencies": {
+        "@supabase/ssr": "^0.12.7",
+        "@supabase/supabase-js": "^2.117.2",
         "bcryptjs": "^3.0.3",
         "express-rate-limit": "^8.6.2"
     }
