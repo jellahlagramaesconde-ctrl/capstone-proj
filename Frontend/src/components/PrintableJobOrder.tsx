@@ -64,14 +64,11 @@ const Letterhead: React.FC = () => (
     <tbody>
       <tr>
         <td style={{ width: "72px", verticalAlign: "middle", paddingRight: "10px" }}>
-          <div style={{
-            width: "64px", height: "64px", borderRadius: "50%",
-            border: "2px solid #000", display: "flex", alignItems: "center",
-            justifyContent: "center", fontSize: "7px", textAlign: "center",
-            lineHeight: 1.3, fontWeight: "bold",
-          }}>
-            COSCA<br />SEAL
-          </div>
+          <img
+            src="/cosca-seal.png"
+            alt="COSCA Seal"
+            style={{ width: "64px", height: "64px", objectFit: "contain", display: "block" }}
+          />
         </td>
         <td style={{ textAlign: "center", verticalAlign: "middle" }}>
           <div style={{ fontSize: "10px", marginBottom: "1px" }}>Diocese of Dumaguete</div>
@@ -364,12 +361,12 @@ const Page2: React.FC<{ ticket: JobOrder }> = ({ ticket }) => {
               <td style={{ ...cell, textAlign: "right" }}>
                 {item
                   ? `\u20b1 ${item.unitCost.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                  : <span style={{ color: "#ccc" }}>\u20b1</span>}
+                  : ""}
               </td>
               <td style={{ ...cell, textAlign: "right" }}>
                 {item
                   ? `\u20b1 ${item.cost.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                  : <span style={{ color: "#ccc" }}>\u20b1</span>}
+                  : ""}
               </td>
             </tr>
           ))}
@@ -382,7 +379,7 @@ const Page2: React.FC<{ ticket: JobOrder }> = ({ ticket }) => {
             <td style={{ ...cell, textAlign: "right", fontWeight: "bold", fontSize: "12px" }}>
               {items.length > 0
                 ? `\u20b1 ${total.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                : <span style={{ color: "#ccc" }}>\u20b1</span>}
+                : ""}
             </td>
           </tr>
           <tr>
