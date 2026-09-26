@@ -64,11 +64,14 @@ const Letterhead: React.FC = () => (
     <tbody>
       <tr>
         <td style={{ width: "72px", verticalAlign: "middle", paddingRight: "10px" }}>
-          <img
-            src="/cosca-seal.png"
-            alt="COSCA Seal"
-            style={{ width: "64px", height: "64px", objectFit: "contain", display: "block" }}
-          />
+          <div style={{
+            width: "64px", height: "64px", borderRadius: "50%",
+            border: "2px solid #000", display: "flex", alignItems: "center",
+            justifyContent: "center", fontSize: "7px", textAlign: "center",
+            lineHeight: 1.3, fontWeight: "bold",
+          }}>
+            COSCA<br />SEAL
+          </div>
         </td>
         <td style={{ textAlign: "center", verticalAlign: "middle" }}>
           <div style={{ fontSize: "10px", marginBottom: "1px" }}>Diocese of Dumaguete</div>
@@ -361,12 +364,12 @@ const Page2: React.FC<{ ticket: JobOrder }> = ({ ticket }) => {
               <td style={{ ...cell, textAlign: "right" }}>
                 {item
                   ? `\u20b1 ${item.unitCost.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                  : ""}
+                  : <span style={{ color: "#ccc" }}>\u20b1</span>}
               </td>
               <td style={{ ...cell, textAlign: "right" }}>
                 {item
                   ? `\u20b1 ${item.cost.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                  : ""}
+                  : <span style={{ color: "#ccc" }}>\u20b1</span>}
               </td>
             </tr>
           ))}
@@ -379,7 +382,7 @@ const Page2: React.FC<{ ticket: JobOrder }> = ({ ticket }) => {
             <td style={{ ...cell, textAlign: "right", fontWeight: "bold", fontSize: "12px" }}>
               {items.length > 0
                 ? `\u20b1 ${total.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                : ""}
+                : <span style={{ color: "#ccc" }}>\u20b1</span>}
             </td>
           </tr>
           <tr>
@@ -409,7 +412,6 @@ const Page2: React.FC<{ ticket: JobOrder }> = ({ ticket }) => {
           <tr>
             <td style={{ verticalAlign: "top", paddingRight: "60px" }}>
               <div style={{ borderTop: "1px solid #000", paddingTop: "4px" }}>
-                <div style={{ fontWeight: "bold", textTransform: "uppercase" }}>Physical Plant Officer</div>
                 <div style={{ fontSize: "10px", color: "#444" }}>Physical Plant Office</div>
                 {ticket.ppoApproved && (
                   <div style={{ fontSize: "10px", marginTop: "2px" }}>\u2713 Verified &amp; Approved</div>
@@ -418,7 +420,6 @@ const Page2: React.FC<{ ticket: JobOrder }> = ({ ticket }) => {
             </td>
             <td style={{ verticalAlign: "top" }}>
               <div style={{ borderTop: "1px solid #000", paddingTop: "4px" }}>
-                <div style={{ fontWeight: "bold", textTransform: "uppercase" }}>VP-Admin and Finance</div>
                 <div style={{ fontSize: "10px", color: "#444" }}>Finance Department Head</div>
                 {ticket.financeApproved && (
                   <div style={{ fontSize: "10px", marginTop: "2px" }}>\u2713 Funding Released</div>
@@ -435,7 +436,6 @@ const Page2: React.FC<{ ticket: JobOrder }> = ({ ticket }) => {
           <tr>
             <td style={{ verticalAlign: "top", paddingRight: "60px" }}>
               <div style={{ borderTop: "1px solid #000", paddingTop: "4px" }}>
-                <div style={{ fontWeight: "bold", textTransform: "uppercase" }}>School President</div>
                 <div style={{ fontSize: "10px", color: "#444" }}>School Directress / President</div>
                 {ticket.schoolHeadApproved && (
                   <div style={{ fontSize: "10px", marginTop: "2px" }}>\u2713 Endorsed</div>
