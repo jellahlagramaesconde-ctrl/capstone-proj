@@ -363,31 +363,31 @@ const Page2: React.FC<{ ticket: JobOrder }> = ({ ticket }) => {
               <td style={{ ...cell }}>{item ? item.description : ""}</td>
               <td style={{ ...cell, textAlign: "right" }}>
                 {item
-                  ? `\u20b1 ${item.unitCost.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                  : <span style={{ color: "#ccc" }}>\u20b1</span>}
+                  ? `₱ ${item.unitCost.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
+                  : ""}
               </td>
               <td style={{ ...cell, textAlign: "right" }}>
                 {item
-                  ? `\u20b1 ${item.cost.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                  : <span style={{ color: "#ccc" }}>\u20b1</span>}
+                  ? `₱ ${item.cost.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
+                  : ""}
               </td>
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr>
+            <td colSpan={6} style={{ ...cell, textAlign: "center", fontStyle: "italic" }}>
+              ***** Nothing Follows *****
+            </td>
+          </tr>
+          <tr>
             <td colSpan={5} style={{ ...cell, textAlign: "center", fontWeight: "bold", fontSize: "12px" }}>
               TOTAL
             </td>
             <td style={{ ...cell, textAlign: "right", fontWeight: "bold", fontSize: "12px" }}>
               {items.length > 0
-                ? `\u20b1 ${total.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                : <span style={{ color: "#ccc" }}>\u20b1</span>}
-            </td>
-          </tr>
-          <tr>
-            <td colSpan={6} style={{ ...cell, textAlign: "center", fontStyle: "italic" }}>
-              ***** Nothing Follows *****
+                ? `₱ ${total.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
+                : ""}
             </td>
           </tr>
           <tr>
