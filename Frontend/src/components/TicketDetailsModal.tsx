@@ -123,6 +123,15 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
     const printWin = window.open("", "_blank", "width=960,height=720");
     if (!printWin) { window.print(); return; }
 
+    // The blank popup has no base URL, so relative paths like /cosca-seal.png
+    // would 404. Rewrite all root-relative src attributes to absolute URLs
+    // before injecting so images (logo, etc.) load correctly.
+    const origin = window.location.origin;
+    const html = el.innerHTML.replace(
+      /(<img[^>]+src=")\/([^"]*")/gi,
+      `$1${origin}/$2`
+    );
+
     printWin.document.write(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -138,7 +147,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
     }
   </style>
 </head>
-<body>${el.innerHTML}</body>
+<body>${html}</body>
 </html>`);
 
     printWin.document.close();

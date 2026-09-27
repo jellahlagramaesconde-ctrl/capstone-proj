@@ -64,14 +64,11 @@ const Letterhead: React.FC = () => (
     <tbody>
       <tr>
         <td style={{ width: "72px", verticalAlign: "middle", paddingRight: "10px" }}>
-          <div style={{
-            width: "64px", height: "64px", borderRadius: "50%",
-            border: "2px solid #000", display: "flex", alignItems: "center",
-            justifyContent: "center", fontSize: "7px", textAlign: "center",
-            lineHeight: 1.3, fontWeight: "bold",
-          }}>
-            COSCA<br />SEAL
-          </div>
+          <img
+            src="/cosca-seal.png"
+            alt="COSCA Seal"
+            style={{ width: "64px", height: "64px", objectFit: "contain" }}
+          />
         </td>
         <td style={{ textAlign: "center", verticalAlign: "middle" }}>
           <div style={{ fontSize: "10px", marginBottom: "1px" }}>Diocese of Dumaguete</div>
