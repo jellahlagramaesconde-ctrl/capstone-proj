@@ -234,6 +234,12 @@ CREATE TABLE IF NOT EXISTS job_orders (
     school_head_approved BOOLEAN DEFAULT FALSE,
     finance_approved     BOOLEAN DEFAULT FALSE,
 
+    -- If TRUE the request requires purchasing of materials or involves a major
+    -- project, so the full PPO → School Head → Finance chain is enforced.
+    -- If FALSE (default) only PPO approval is needed; the job moves directly
+    -- to In Progress after PPO signs off, skipping President and Finance.
+    requires_funds       BOOLEAN DEFAULT FALSE,
+
     emergency_bypassed   BOOLEAN DEFAULT FALSE,
 
     estimated_cost   NUMERIC(12,2),  
@@ -270,6 +276,7 @@ CREATE INDEX IF NOT EXISTS idx_job_orders_status              ON job_orders(stat
 CREATE INDEX IF NOT EXISTS idx_job_orders_ppo_approved        ON job_orders(ppo_approved);
 CREATE INDEX IF NOT EXISTS idx_job_orders_school_head_approved ON job_orders(school_head_approved);
 CREATE INDEX IF NOT EXISTS idx_job_orders_finance_approved    ON job_orders(finance_approved);
+CREATE INDEX IF NOT EXISTS idx_job_orders_requires_funds       ON job_orders(requires_funds);
 CREATE INDEX IF NOT EXISTS idx_job_orders_department_id       ON job_orders(department_id);
 CREATE INDEX IF NOT EXISTS idx_job_orders_assigned_staff_id   ON job_orders(assigned_staff_id);
 CREATE INDEX IF NOT EXISTS idx_job_orders_date_submitted      ON job_orders(date_submitted DESC);

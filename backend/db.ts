@@ -45,12 +45,14 @@ export function mapJobOrderRow(row: any) {
     ppoApproved: row.ppo_approved,
     financeApproved: row.finance_approved,
     schoolHeadApproved: row.school_head_approved,
+    requiresFunds: row.requires_funds ?? false,
     isEmergency: row.is_emergency,
     emergencyBypassed: row.emergency_bypassed,
     photoUrl: row.photo_url ?? undefined,
     estimatedCost: row.estimated_cost !== null && row.estimated_cost !== undefined ? Number(row.estimated_cost) : undefined,
     approvedAmount: row.approved_amount !== null && row.approved_amount !== undefined ? Number(row.approved_amount) : undefined,
     financeNotes: row.finance_notes ?? undefined,
+    completionRemarks: row.completion_remarks ?? undefined,
   };
 }
 

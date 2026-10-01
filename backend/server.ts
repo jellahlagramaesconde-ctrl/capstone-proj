@@ -1764,7 +1764,7 @@ app.get("/api/logs", authenticateToken, async (req: AuthedRequest, res) => {
 // Submit a new job order with AI (or rule-based) analysis — Dept accounts only
 app.post("/api/job-orders", authenticateToken, requireRole("Dept", "PPO", "President", "Finance"), async (req, res) => {
   try {
-    const { office, description, requestedByName, isEmergency, photoUrl, photoUrls: photoUrlsInput } = req.body;
+    const { office, description, requestedByName, isEmergency, requiresFunds, photoUrl, photoUrls: photoUrlsInput } = req.body;
     if (!description || !office) {
       return res.status(400).json({ error: "Office and Description are required fields." });
     }
@@ -1912,8 +1912,8 @@ app.post("/api/job-orders", authenticateToken, requireRole("Dept", "PPO", "Presi
     const ticketId = `JO-${new Date().getFullYear()}-0${ticketIdResult.rows[0].next_id}`;
     const insertResult = await pool.query(
       `INSERT INTO job_orders
-        (id, office, description, job_type, safety_risk, operational_impact, urgency, people_affected, resource_cost, priority_score, status, assigned_staff, assigned_staff_id, match_score, notes, requested_by_name, is_emergency, photo_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Pending',$11,$12,$13,$14,$15,$16,$17)
+        (id, office, description, job_type, safety_risk, operational_impact, urgency, people_affected, resource_cost, priority_score, status, assigned_staff, assigned_staff_id, match_score, notes, requested_by_name, is_emergency, requires_funds, photo_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Pending',$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING *`,
       [
         ticketId,
@@ -1932,6 +1932,7 @@ app.post("/api/job-orders", authenticateToken, requireRole("Dept", "PPO", "Presi
         parsedResult.explanation,
         requestedByName.trim(),
         Boolean(isEmergency),
+        Boolean(requiresFunds),
         photoUrls[0] || null,
       ]
     );
@@ -2164,39 +2165,49 @@ app.post("/api/settings/worker-limit", authenticateToken, requireRole("PPO"), as
 });
 
 // Status change — Staff only
-app.post("/api/job-orders/status", authenticateToken, requireRole("Staff"), async (req, res) => {
+app.post("/api/job-orders/status", authenticateToken, requireRole("Staff"), async (req: AuthedRequest, res) => {
   try {
-    const { id, status } = req.body;
+    const { id, status, completionRemarks } = req.body;
     if (!status) {
       return res.status(400).json({ error: "A status value is required." });
     }
     const updateResult = await pool.query(
       `UPDATE job_orders
-       SET status = $2::varchar, date_completed = CASE WHEN $2::varchar = 'Completed' THEN NOW() ELSE NULL END
+       SET status = $2::varchar,
+           date_completed = CASE WHEN $2::varchar = 'Completed' THEN NOW() ELSE NULL END,
+           completion_remarks = CASE WHEN $2::varchar = 'Completed' THEN COALESCE($3, completion_remarks) ELSE completion_remarks END
        WHERE id = $1 RETURNING *`,
-      [id, status]
+      [id, status, completionRemarks ?? null]
     );
     if (updateResult.rows.length === 0) return res.status(404).json({ error: "Job Order not found." });
     const ticket = mapJobOrderRow(updateResult.rows[0]);
 
+    const remarksText = completionRemarks ? ` Technician's remarks: "${completionRemarks}"` : "";
+
     await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
       `n_${Date.now()}`,
-      `Ticket ${id} status updated to ${String(status).toUpperCase()} (Assigned: ${ticket.assignedStaff}).`,
+      `Ticket ${id} status updated to ${String(status).toUpperCase()} (Assigned: ${ticket.assignedStaff}).${remarksText}`,
       id,
     ]);
-    void notifyDeptByEmail(ticket.office, `Job Order Status Updated — ${id}`, `Ticket ${id} status updated to ${String(status).toUpperCase()} (Assigned: ${ticket.assignedStaff}).`, id);
+    void notifyDeptByEmail(ticket.office, `Job Order Status Updated — ${id}`, `Ticket ${id} status updated to ${String(status).toUpperCase()} (Assigned: ${ticket.assignedStaff}).${remarksText}`, id);
 
-    // When a technician marks the job Completed, the PPO (the desk that
-    // owns the job order board) should hear about it too — previously only
-    // the requesting Dept got notified, so a finished job could sit
-    // invisible to PPO until someone happened to check the dashboard.
     if (status === "Completed") {
-      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'PPO', $3)", [
-        `n_${Date.now()}_ppo_done`,
-        `Job Order ${id} (${ticket.office} — ${ticket.jobType}) has been marked COMPLETED by ${ticket.assignedStaff}.`,
+      // Write audit log for staff completion
+      await pool.query(
+        `INSERT INTO approval_audit_log (job_order_id, actor_user_id, action, previous_value, new_value, reason)
+         VALUES ($1, $2, 'staff_completed', $3, $4, $5)`,
+        [id, req.user?.sub ?? null, "status: In Progress", "status: Completed", completionRemarks ?? null]
+      );
+      await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
+        `Job Order ${id} marked COMPLETED by ${ticket.assignedStaff}.${remarksText}`,
         id,
       ]);
-      void notifyRoleByEmail("PPO", `Job Order Completed — ${id}`, `Job Order ${id} (${ticket.office} — ${ticket.jobType}) has been marked COMPLETED by ${ticket.assignedStaff}.`, id);
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'PPO', $3)", [
+        `n_${Date.now()}_ppo_done`,
+        `Job Order ${id} (${ticket.office} — ${ticket.jobType}) has been marked COMPLETED by ${ticket.assignedStaff}.${remarksText}`,
+        id,
+      ]);
+      void notifyRoleByEmail("PPO", `Job Order Completed — ${id}`, `Job Order ${id} (${ticket.office} — ${ticket.jobType}) has been marked COMPLETED by ${ticket.assignedStaff}.${remarksText}`, id);
     }
 
     res.json(ticket);
@@ -2206,8 +2217,71 @@ app.post("/api/job-orders/status", authenticateToken, requireRole("Staff"), asyn
   }
 });
 
+// PPO bypass of President endorsement — PPO only, funded-track tickets only.
+// PPO can act in place of the President when urgency demands it, but must
+// supply a written reason (min 10 chars). The bypass is fully audited.
+app.post("/api/job-orders/ppo-bypass-president", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
+  try {
+    const { id, reason } = req.body;
+    if (!reason || String(reason).trim().length < 10) {
+      return res.status(400).json({ error: "A reason of at least 10 characters is required to bypass President endorsement." });
+    }
+    const existing = await pool.query("SELECT * FROM job_orders WHERE id = $1", [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ error: "Job Order not found." });
+    if (!existing.rows[0].ppo_approved) {
+      return res.status(400).json({ error: "Job Order must be approved by PPO first before bypassing President endorsement." });
+    }
+    if (!existing.rows[0].requires_funds) {
+      return res.status(400).json({ error: "This job order does not require funds — President endorsement is not applicable." });
+    }
+    if (existing.rows[0].school_head_approved) {
+      return res.status(400).json({ error: "President has already endorsed this job order." });
+    }
+
+    const updateResult = await pool.query(
+      "UPDATE job_orders SET school_head_approved = TRUE WHERE id = $1 RETURNING *",
+      [id]
+    );
+    const ticket = mapJobOrderRow(updateResult.rows[0]);
+
+    // Mandatory audit log entry — includes actor, reason, and timestamp
+    await pool.query(
+      `INSERT INTO approval_audit_log (job_order_id, actor_user_id, action, previous_value, new_value, reason)
+       VALUES ($1, $2, 'ppo_bypass_president', $3, $4, $5)`,
+      [id, req.user?.sub ?? null, "school_head_approved: false", "school_head_approved: true (PPO bypass)", String(reason).trim()]
+    );
+
+    const actorName = req.user?.fullName ?? req.user?.username ?? "PPO";
+    await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
+      `⚡ PPO (${actorName}) bypassed President endorsement for Job Order ${id}. Reason: "${String(reason).trim()}". Forwarded to Finance.`,
+      id,
+    ]);
+
+    // Notify Finance — the next step in the funded chain
+    await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Finance', $3)", [
+      `n_${Date.now()}_bypass_fin`,
+      `Job Order ${id} has been forwarded to Finance (President endorsement bypassed by PPO). Ready for funding allocation.`,
+      id,
+    ]);
+    void notifyRoleByEmail("Finance", `Job Order Ready for Funding — ${id}`, `Job Order ${id} has been forwarded to your queue. The PPO bypassed President endorsement. Reason: "${String(reason).trim()}". Please review and allocate funding.`, id);
+
+    // Notify Dept
+    await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
+      `n_${Date.now()}_bypass_dept`,
+      `Your request ${id} has been forwarded to Finance for funding (PPO expedited President endorsement). You will be updated once Finance approves.`,
+      id,
+    ]);
+    void notifyDeptByEmail(existing.rows[0].office, `Your Request Forwarded to Finance — ${id}`, `Your request ${id} has been expedited to Finance for funding. You will be notified once funding is released.`, id);
+
+    res.json(ticket);
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // School Head endorsement — President only
-app.post("/api/job-orders/school-head-approve", authenticateToken, requireRole("President"), async (req, res) => {
+app.post("/api/job-orders/school-head-approve", authenticateToken, requireRole("President"), async (req: AuthedRequest, res) => {
   try {
     const { id } = req.body;
     const existing = await pool.query("SELECT * FROM job_orders WHERE id = $1", [id]);
@@ -2215,8 +2289,18 @@ app.post("/api/job-orders/school-head-approve", authenticateToken, requireRole("
     if (!existing.rows[0].ppo_approved) {
       return res.status(400).json({ error: "Job Order must be approved by the Physical Plant Officer (PPO) first." });
     }
+    if (!existing.rows[0].requires_funds) {
+      return res.status(400).json({ error: "This job order does not require funds — President endorsement is not needed. It was already dispatched after PPO approval." });
+    }
 
     const updateResult = await pool.query("UPDATE job_orders SET school_head_approved = TRUE WHERE id = $1 RETURNING *", [id]);
+
+    // Audit log entry
+    await pool.query(
+      `INSERT INTO approval_audit_log (job_order_id, actor_user_id, action, previous_value, new_value)
+       VALUES ($1, $2, 'president_approve', $3, $4)`,
+      [id, req.user?.sub ?? null, "school_head_approved: false", "school_head_approved: true"]
+    );
 
     await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
       `School Head endorsed and authorized Job Order ${id}. Forwarded to Finance Department Head for final funding approval.`,
@@ -2245,7 +2329,7 @@ app.post("/api/job-orders/school-head-approve", authenticateToken, requireRole("
 // PPO verify & approve — PPO only
 app.post("/api/job-orders/ppo-approve", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
   try {
-    const { id, estimatedCost, emergencyOverride, confirmOverride } = req.body;
+    const { id, estimatedCost, emergencyOverride, confirmOverride, requiresFunds } = req.body;
 
     const existing = await pool.query("SELECT * FROM job_orders WHERE id = $1", [id]);
     if (existing.rows.length === 0) return res.status(404).json({ error: "Job Order not found." });
@@ -2291,30 +2375,58 @@ app.post("/api/job-orders/ppo-approve", authenticateToken, requireRole("PPO"), a
     // rather than being notified sequentially. No approval stage is skipped.
     const isEmergency = Boolean(existing.rows[0].is_emergency) || Boolean(emergencyOverride);
 
-    // PPO approve — same SQL for both emergency and normal: only ppo_approved
-    // is set here. School Head and Finance must still review and sign off.
+    // PPO approve — set ppo_approved, optionally update requires_funds, set estimated_cost.
+    // For no-fund track: also set status = 'In Progress' immediately.
+    const fundsRequired = requiresFunds !== undefined
+      ? Boolean(requiresFunds)
+      : Boolean(existing.rows[0].requires_funds);
+
     const updateResult = await pool.query(
       `UPDATE job_orders
        SET ppo_approved = TRUE,
-           is_emergency = CASE WHEN $2 THEN TRUE ELSE is_emergency END,
-           estimated_cost = COALESCE($3::numeric, estimated_cost)
+           requires_funds = $2,
+           is_emergency = CASE WHEN $3 THEN TRUE ELSE is_emergency END,
+           estimated_cost = COALESCE($4::numeric, estimated_cost),
+           status = CASE WHEN $2 = FALSE THEN 'In Progress' ELSE status END
        WHERE id = $1 RETURNING *`,
-      [id, Boolean(emergencyOverride), estimatedCost ?? null]
+      [id, fundsRequired, Boolean(emergencyOverride), estimatedCost ?? null]
     );
     const ticket = mapJobOrderRow(updateResult.rows[0]);
 
     const costInfo = ticket.estimatedCost !== undefined ? ` with estimated material/labor cost of ₱${ticket.estimatedCost.toLocaleString()}` : "";
     const capacityNote = confirmOverride ? " ⚠️ Approved over the worker task capacity limit — PPO acknowledged the warning." : "";
     const emergencyTag = isEmergency ? "🚨 EMERGENCY — " : "";
+    const trackNote = fundsRequired ? " [Funded Track — requires President & Finance approval]" : " [No-Fund Track — dispatched directly]";
+
+    // Write to approval_audit_log for every PPO action
+    const auditAction = fundsRequired ? "ppo_approve" : "no_fund_dispatch";
+    await pool.query(
+      `INSERT INTO approval_audit_log (job_order_id, actor_user_id, action, previous_value, new_value, amount_php)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, req.user?.sub ?? null, auditAction, "ppo_approved: false", `ppo_approved: true, requires_funds: ${fundsRequired}`, estimatedCost ?? null]
+    );
 
     await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
-      `${emergencyTag}Physical Plant Officer verified and approved Job Order ${id}${costInfo}. Forwarded to School Head for administrative endorsement.${capacityNote}`,
+      `${emergencyTag}Physical Plant Officer verified and approved Job Order ${id}${costInfo}.${trackNote}${capacityNote}`,
       id,
     ]);
 
-    if (isEmergency) {
-      // Emergency: alert ALL admin roles at once so they can act without delay.
-      // Each role must still take their own action — nothing is skipped.
+    if (!fundsRequired) {
+      // ── NO-FUND TRACK ── PPO approval is the final step; ticket is now In Progress.
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
+        `n_${Date.now()}_dept_nofund`,
+        `✅ Your request ${id} has been approved by PPO and dispatched directly to ${ticket.assignedStaff}. No additional approvals required (no funds needed).`,
+        id,
+      ]);
+      void notifyDeptByEmail(ticket.office, `Your Request Approved & Dispatched — ${id}`, `Your request ${id} has been approved by the Physical Plant Officer and dispatched directly (no funds required). Technician: ${ticket.assignedStaff}.`, id);
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Staff', $3)", [
+        `n_${Date.now()}_stf_nofund`,
+        `New job order dispatched: ${id} (${ticket.office}). No funding approval needed — start when ready.`,
+        id,
+      ]);
+      void notifyStaffOfDispatch(ticket);
+    } else if (isEmergency) {
+      // ── FUNDED TRACK + EMERGENCY ── alert ALL admin roles at once.
       await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'President', $3)", [
         `n_${Date.now()}_head_emg`,
         `🚨 URGENT ENDORSEMENT REQUIRED — Job Order ${id} (${ticket.office}) has been approved by PPO as an EMERGENCY${costInfo}. Please endorse immediately so Finance can release funding.`,
@@ -2349,7 +2461,7 @@ app.post("/api/job-orders/ppo-approve", authenticateToken, requireRole("PPO"), a
         id
       );
     } else {
-      // Normal track: sequential notification — PPO → School Head only.
+      // ── FUNDED TRACK + NORMAL ── sequential: notify President only.
       await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'President', $3)", [
         `n_${Date.now()}_ppo`,
         `Job Order ${id} verified by PPO${costInfo}. Awaiting School Head endorsement.`,
@@ -2371,14 +2483,17 @@ app.post("/api/job-orders/ppo-approve", authenticateToken, requireRole("PPO"), a
   }
 });
 
-// Finance approval & fund release — Finance only
-app.post("/api/job-orders/finance-approve", authenticateToken, requireRole("Finance"), async (req, res) => {
+// Finance approval & fund release — Finance only. No bypass permitted.
+app.post("/api/job-orders/finance-approve", authenticateToken, requireRole("Finance"), async (req: AuthedRequest, res) => {
   try {
     const { id, approvedAmount, estimatedCost, financeNotes } = req.body;
     const existing = await pool.query("SELECT * FROM job_orders WHERE id = $1", [id]);
     if (existing.rows.length === 0) return res.status(404).json({ error: "Job Order not found." });
     if (!existing.rows[0].ppo_approved || !existing.rows[0].school_head_approved) {
       return res.status(400).json({ error: "Job Order must be approved by the PPO and endorsed by the School Head first." });
+    }
+    if (!existing.rows[0].requires_funds) {
+      return res.status(400).json({ error: "This job order does not require funds — Finance approval is not applicable. It was dispatched directly after PPO approval." });
     }
 
     const updateResult = await pool.query(
@@ -2396,6 +2511,12 @@ app.post("/api/job-orders/finance-approve", authenticateToken, requireRole("Fina
     const estimatedInfo = ticket.estimatedCost !== undefined ? ` (Est. Cost was ₱${ticket.estimatedCost.toLocaleString()})` : "";
     const notesInfo = ticket.financeNotes ? ` Notes: "${ticket.financeNotes}"` : "";
 
+    // Audit log
+    await pool.query(
+      `INSERT INTO approval_audit_log (job_order_id, actor_user_id, action, previous_value, new_value, amount_php, reason)
+       VALUES ($1, $2, 'finance_approve', $3, $4, $5, $6)`,
+      [id, req.user?.sub ?? null, "finance_approved: false", "finance_approved: true, status: In Progress", approvedAmount ?? null, financeNotes ?? null]
+    );
     await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
       `Finance Dept Head approved and allocated funding of${approvedInfo}${estimatedInfo} for Job Order ${id}.${notesInfo} Status set to IN PROGRESS.`,
       id,
@@ -2619,6 +2740,8 @@ async function applySchemaMigrations() {
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS requested_by_name VARCHAR(150)");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS photo_url TEXT");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS emergency_bypassed BOOLEAN DEFAULT FALSE");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS requires_funds BOOLEAN DEFAULT FALSE");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS completion_remarks TEXT");
 
     // Self-healing FK guardrail: deleting a staff/user account should never
     // be silently blocked by rows that still reference it elsewhere in the

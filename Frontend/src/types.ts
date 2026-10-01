@@ -30,6 +30,7 @@ export interface JobOrder {
   ppoApproved?: boolean;
   financeApproved?: boolean;
   schoolHeadApproved?: boolean;
+  requiresFunds?: boolean;
   isEmergency?: boolean;
   emergencyBypassed?: boolean;
   photoUrl?: string;
@@ -37,6 +38,7 @@ export interface JobOrder {
   estimatedCost?: number;
   approvedAmount?: number;
   financeNotes?: string;
+  completionRemarks?: string;
   // Itemized budget requisition breakdown — only present in API responses
   // for PPO/Finance/President (Dept/Staff never receive these fields).
   budgetItems?: BudgetItem[];

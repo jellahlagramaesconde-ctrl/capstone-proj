@@ -2,7 +2,7 @@ import React, { useState, useRef } from "react";
 import { ClipboardCheck, Sparkles, Send, User, X, Plus, Building2, Upload, Image as ImageIcon } from "lucide-react";
 
 interface NewJobOrderButtonProps {
-  onSubmitRequest: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[]) => Promise<void>;
+  onSubmitRequest: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean) => Promise<void>;
   isSubmitting: boolean;
   /** If provided, the office field renders as a dropdown of these labels instead of free text. */
   officeOptions?: string[];
@@ -34,6 +34,7 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
   const [description, setDescription] = useState("");
   const [requestedByName, setRequestedByName] = useState(defaultRequestedBy);
   const [isEmergency, setIsEmergency] = useState(false);
+  const [requiresFunds, setRequiresFunds] = useState(false);
   const [formSuccess, setFormSuccess] = useState(false);
 
   // Photo attachment — same pattern as DeptDashboard's drag-and-drop uploader,
@@ -129,9 +130,10 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
     e.preventDefault();
     if (!office.trim() || !description.trim() || !requestedByName.trim()) return;
 
-    await onSubmitRequest(office.trim(), description, requestedByName.trim(), isEmergency, filePreviews.filter(Boolean));
+    await onSubmitRequest(office.trim(), description, requestedByName.trim(), isEmergency, filePreviews.filter(Boolean), requiresFunds);
     setDescription("");
     setIsEmergency(false);
+    setRequiresFunds(false);
     clearFiles();
     setFormSuccess(true);
     setTimeout(() => {
@@ -337,6 +339,25 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Requires Funds / Materials Purchase flag */}
+              <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg p-3.5">
+                <input
+                  type="checkbox"
+                  id="requiresFundsCheckbox"
+                  checked={requiresFunds}
+                  onChange={(e) => setRequiresFunds(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-blue-600 cursor-pointer shrink-0"
+                />
+                <label htmlFor="requiresFundsCheckbox" className="text-sm font-sans cursor-pointer">
+                  <span className="font-semibold text-blue-700">Requires Funds / Materials Purchase?</span>
+                  <span className="block text-slate-700 mt-0.5 leading-relaxed">
+                    Check this if the request involves purchasing materials or a large project requiring budget allocation.
+                    If checked, this will require <strong>President endorsement</strong> and <strong>Finance approval</strong> before dispatch.
+                    Leave unchecked for routine repairs that need no budget release.
+                  </span>
+                </label>
               </div>
 
               {/* Emergency / Urgent flag */}

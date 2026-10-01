@@ -1034,7 +1034,7 @@ export default function App() {
   );
 
   // Submit Job Request (Screen 2)
-  const handleSubmitRequest = async (office: string, description: string, requestedByName: string, isEmergency: boolean = false, photoUrls?: string[]) => {
+  const handleSubmitRequest = async (office: string, description: string, requestedByName: string, isEmergency: boolean = false, photoUrls?: string[], requiresFunds?: boolean) => {
     setIsSubmitting(true);
     setNetworkError(null);
     // 30-second hard timeout — the backend AI parsing step (Gemini) has its
@@ -1047,7 +1047,7 @@ export default function App() {
       const res = await authedFetch("/api/job-orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ office, description, requestedByName, isEmergency, photoUrls }),
+        body: JSON.stringify({ office, description, requestedByName, isEmergency, requiresFunds: Boolean(requiresFunds), photoUrls }),
         signal: controller.signal,
       });
       clearTimeout(submitTimeout);
@@ -1074,13 +1074,13 @@ export default function App() {
     }
   };
 
-  // Status Change (Screen 3 & general)
-  const handleUpdateStatus = async (id: string, status: "Pending" | "In Progress" | "Completed") => {
+  // Status Change (Screen 3 & general) — now also accepts optional completion remarks
+  const handleUpdateStatus = async (id: string, status: "Pending" | "In Progress" | "Completed", completionRemarks?: string) => {
     try {
       const res = await authedFetch("/api/job-orders/status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status }),
+        body: JSON.stringify({ id, status, completionRemarks: completionRemarks || undefined }),
       });
       if (!res.ok) {
         const errorData = await res.json().catch(() => null);
@@ -1102,7 +1102,8 @@ export default function App() {
     id: string,
     estimatedCost?: number,
     emergencyOverride?: boolean,
-    confirmOverride: boolean = false
+    confirmOverride: boolean = false,
+    requiresFunds?: boolean
   ) => {
     try {
       const body: any = { id, confirmOverride };
@@ -1111,6 +1112,9 @@ export default function App() {
       }
       if (emergencyOverride) {
         body.emergencyOverride = true;
+      }
+      if (requiresFunds !== undefined) {
+        body.requiresFunds = requiresFunds;
       }
 
       const res = await authedFetch("/api/job-orders/ppo-approve", {
@@ -1127,7 +1131,7 @@ export default function App() {
         if (errorData?.warning) {
           const proceed = window.confirm(errorData.error);
           if (proceed) {
-            await handleApprove(id, estimatedCost, emergencyOverride, true);
+            await handleApprove(id, estimatedCost, emergencyOverride, true, requiresFunds);
           }
           return;
         }
@@ -1142,6 +1146,27 @@ export default function App() {
       const message = err?.message || "PPO approval failed.";
       setNetworkError(message);
       alert(`Unable to approve request: ${message}`);
+    }
+  };
+
+  // PPO bypasses President endorsement — funded track only, reason required
+  const handlePpoBypassPresident = async (id: string, reason: string) => {
+    try {
+      const res = await authedFetch("/api/job-orders/ppo-bypass-president", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, reason }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        const message = (errorData && errorData.error) || `${res.status} ${res.statusText}`;
+        alert(`Bypass failed: ${message}`);
+        return;
+      }
+      await fetchDatabase();
+    } catch (err: any) {
+      console.error(err);
+      alert(`Unable to bypass President endorsement: ${err?.message || "unknown error"}`);
     }
   };
 
@@ -1959,6 +1984,7 @@ export default function App() {
                   onTicketClick={acknowledgeEmergencyTicket}
                   onSchoolHeadApprove={handleSchoolHeadApprove}
                   onFinanceApprove={handleFinanceApprove}
+                  onPpoBypassPresident={handlePpoBypassPresident}
                   onSaveBudgetItems={handleSaveBudgetItems}
                   onSubmitRequest={handleSubmitRequest}
                   isSubmitting={isSubmitting}
