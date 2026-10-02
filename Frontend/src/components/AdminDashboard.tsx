@@ -17,13 +17,14 @@ interface AdminDashboardProps {
   onDeleteUser?: (id: number) => Promise<{ ok: boolean; error?: string }>;
   onDeleteJobOrder?: (ticketId: string) => Promise<{ ok: boolean; error?: string }>;
   onOverride: (id: string, assignedStaff: string, priorityScore: number, rationale: string) => void;
-  onApprove: (id: string, estimatedCost?: number, emergencyOverride?: boolean) => void;
+  onApprove: (id: string, estimatedCost?: number, emergencyOverride?: boolean, confirmOverride?: boolean, requiresFunds?: boolean) => void;
   onUpdateStatus: (id: string, status: "Pending" | "In Progress" | "Completed") => void;
   onTicketClick?: (ticketId: string) => void;
   onSchoolHeadApprove: (id: string) => void;
   onFinanceApprove: (id: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
+  onPpoBypassPresident?: (id: string, reason: string) => Promise<void>;
   onSaveBudgetItems?: (ticketId: string, items: { qty: number; unit?: string; description: string; unitCost: number }[]) => Promise<void>;
-  onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean) => Promise<void>;
+  onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean) => Promise<void>;
   isSubmitting?: boolean;
   officeOptions?: string[];
   requestedByDefault?: string;
@@ -52,6 +53,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onTicketClick,
   onSchoolHeadApprove,
   onFinanceApprove,
+  onPpoBypassPresident,
   onSaveBudgetItems,
   onSubmitRequest,
   isSubmitting = false,
@@ -89,12 +91,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Workflow queue counts
+  // PPO Bypass President modal state
+  const [bypassTicketId, setBypassTicketId] = useState<string | null>(null);
+  const [bypassReason, setBypassReason] = useState("");
+  const [bypassSubmitting, setBypassSubmitting] = useState(false);
+
+  // Per-ticket requires_funds toggle (PPO sets this during approval)
+  const [ppoRequiresFunds, setPpoRequiresFunds] = useState<Record<string, boolean>>({});
+
+  // Workflow queue counts — President/Finance tabs only show funded-track tickets
   const { presidentCount, ppoCount, financeCount, allCount } = useMemo(() => {
     return {
-      presidentCount: tickets.filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.status !== "Completed").length,
+      presidentCount: tickets.filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.requiresFunds && t.status !== "Completed").length,
       ppoCount: tickets.filter((t) => !t.ppoApproved && t.status !== "Completed").length,
-      financeCount: tickets.filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.status !== "Completed").length,
+      financeCount: tickets.filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.requiresFunds && t.status !== "Completed").length,
       allCount: tickets.length,
     };
   }, [tickets]);
@@ -120,11 +130,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     // 2. Workflow stage sub-tab filtering
     if (activeSubTab === "president") {
-      result = result.filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.status !== "Completed");
+      // Only funded-track tickets need President endorsement
+      result = result.filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.requiresFunds && t.status !== "Completed");
     } else if (activeSubTab === "ppo") {
       result = result.filter((t) => !t.ppoApproved && t.status !== "Completed");
     } else if (activeSubTab === "finance") {
-      result = result.filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.status !== "Completed");
+      // Only funded-track tickets need Finance approval
+      result = result.filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.requiresFunds && t.status !== "Completed");
     }
 
     return result.sort((a, b) => b.priorityScore - a.priorityScore);
@@ -423,15 +435,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                       {/* Row 2: Action controls */}
                       <div className="flex items-center gap-2">
-                        {/* 1. President stage — read-only for PPO */}
+                        {/* 1. President stage — bypass button for PPO, otherwise read-only indicator */}
                         {activeSubTab === "president" && (
-                          <span className="px-2.5 h-8 bg-red-50 text-red-600 border border-red-200 text-xs font-mono rounded-lg flex items-center gap-1 select-none">
-                            <GraduationCap className="w-3 h-3" />
-                            Pending President's Endorsement
-                          </span>
+                          <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            <span className="px-2.5 h-8 bg-red-50 text-red-600 border border-red-200 text-xs font-mono rounded-lg flex items-center gap-1 select-none">
+                              <GraduationCap className="w-3 h-3" />
+                              Awaiting President's Endorsement
+                            </span>
+                            {onPpoBypassPresident && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setBypassTicketId(ticket.id);
+                                  setBypassReason("");
+                                }}
+                                className="ml-auto px-3 h-8 bg-amber-500 hover:bg-amber-600 text-white text-xs font-mono font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer whitespace-nowrap"
+                                title="PPO can endorse in place of the President — a written reason is required and fully audited."
+                              >
+                                ⚡ Bypass President Endorsement
+                              </button>
+                            )}
+                          </div>
                         )}
 
-                        {/* 2. PPO Verify action */}
+                        {/* 2. PPO Verify action — includes requires_funds toggle */}
                         {activeSubTab === "ppo" && (
                           <div className="flex flex-wrap items-center gap-2 w-full" onClick={(e) => e.stopPropagation()}>
                             {ticket.isEmergency && (
@@ -449,15 +476,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 onChange={(e) => setPpoCosts({ ...ppoCosts, [ticket.id]: e.target.value })}
                               />
                             </div>
+                            {/* Requires Funds toggle */}
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs font-mono text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-2.5 h-8 whitespace-nowrap" title="Check if this request needs budget allocation (President + Finance approval required)">
+                              <input
+                                type="checkbox"
+                                checked={ppoRequiresFunds[ticket.id] ?? Boolean(ticket.requiresFunds)}
+                                onChange={(e) => setPpoRequiresFunds({ ...ppoRequiresFunds, [ticket.id]: e.target.checked })}
+                                className="w-3.5 h-3.5 accent-blue-600"
+                              />
+                              Needs Funds?
+                            </label>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const estCost = ppoCosts[ticket.id] ? Number(ppoCosts[ticket.id]) : undefined;
-                                onApprove(ticket.id, estCost, ticket.isEmergency);
+                                const rf = ppoRequiresFunds[ticket.id] ?? Boolean(ticket.requiresFunds);
+                                onApprove(ticket.id, estCost, ticket.isEmergency, false, rf);
                                 setToastMessage(
-                                  ticket.isEmergency
-                                    ? `🚨 EMERGENCY Job Order ${ticket.id} approved — School Head & Finance urgently notified.`
-                                    : `Job Order ${ticket.id} approved by PPO.`
+                                  rf
+                                    ? (ticket.isEmergency
+                                        ? `🚨 EMERGENCY Job Order ${ticket.id} approved (Funded Track) — School Head & Finance urgently notified.`
+                                        : `Job Order ${ticket.id} approved by PPO — forwarded to President for endorsement (Funded Track).`)
+                                    : `Job Order ${ticket.id} approved by PPO — dispatched directly (No-Fund Track, no further approvals needed).`
                                 );
                                 setTimeout(() => setToastMessage(null), 4000);
                               }}
@@ -486,6 +526,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <span className="text-xs font-mono font-bold uppercase tracking-wide">
                             {!ticket.ppoApproved ? (
                               <span className="text-[#8C2331]">Awaiting PPO</span>
+                            ) : !ticket.requiresFunds ? (
+                              <span className="text-cyan-500">✓ No-Fund Track — Dispatched</span>
                             ) : !ticket.schoolHeadApproved ? (
                               <span className="text-red-500">Awaiting President</span>
                             ) : !ticket.financeApproved ? (
@@ -758,6 +800,78 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onCreateUser={onCreateUser}
           onDeleteUser={onDeleteUser}
         />
+      )}
+
+      {/* PPO Bypass President Endorsement Modal */}
+      {bypassTicketId && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-amber-200">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                <span className="text-xl">⚡</span>
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-base text-[#241012]">Bypass President Endorsement</h3>
+                <p className="text-xs text-slate-500 font-sans mt-0.5">Job Order <strong>{bypassTicketId}</strong></p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-800 font-sans leading-relaxed">
+              <strong className="block mb-1">⚠️ This action is fully audited.</strong>
+              Your name, timestamp, and reason will be permanently recorded in the approval log and visible to all admin roles.
+              Finance approval is still required — only President endorsement is being bypassed.
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-xs text-red-700 font-sans leading-relaxed">
+              🔒 <strong>Finance approval cannot be bypassed</strong> — only the Finance Department Head can release funds.
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1.5">
+                Reason for Bypassing <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={bypassReason}
+                onChange={(e) => setBypassReason(e.target.value)}
+                rows={4}
+                placeholder="e.g. President is unavailable due to official travel. Urgent repair needed to restore classroom power before Monday classes. Approval obtained verbally."
+                className="w-full bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg p-3 text-sm text-[#2B1210] focus:outline-none focus:border-amber-400 resize-none placeholder-slate-400 font-sans leading-relaxed"
+              />
+              <div className="flex justify-between text-xs text-slate-500 mt-1 font-sans">
+                <span>{bypassReason.trim().length < 10 ? `${10 - bypassReason.trim().length} more characters needed` : "✓ Reason is sufficient"}</span>
+                <span>{bypassReason.length} chars</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setBypassTicketId(null); setBypassReason(""); }}
+                className="flex-1 px-4 py-2.5 border border-[#E6DDD3] rounded-lg text-sm font-mono text-slate-700 hover:bg-[#F0EAE4] transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={bypassReason.trim().length < 10 || bypassSubmitting}
+                onClick={async () => {
+                  if (!onPpoBypassPresident || bypassReason.trim().length < 10) return;
+                  setBypassSubmitting(true);
+                  try {
+                    await onPpoBypassPresident(bypassTicketId, bypassReason.trim());
+                    setToastMessage(`⚡ President endorsement bypassed for ${bypassTicketId}. Forwarded to Finance.`);
+                    setTimeout(() => setToastMessage(null), 4000);
+                    setBypassTicketId(null);
+                    setBypassReason("");
+                  } finally {
+                    setBypassSubmitting(false);
+                  }
+                }}
+                className="flex-1 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-sm font-mono font-bold transition-colors cursor-pointer"
+              >
+                {bypassSubmitting ? "Processing…" : "⚡ Confirm Bypass"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

@@ -7,7 +7,7 @@ import { getJobOrderCostDisplay, formatPeso, sumJobOrderCosts } from "../priceUt
 
 interface StaffDashboardProps {
   tickets: JobOrder[];
-  onUpdateStatus: (id: string, status: "Pending" | "In Progress" | "Completed") => void;
+  onUpdateStatus: (id: string, status: "Pending" | "In Progress" | "Completed", completionRemarks?: string) => void;
   onTicketClick?: (ticketId: string) => void;
   activeStaffName?: string;
   notifications?: Notification[];
@@ -39,6 +39,10 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<"tasks" | "history">("tasks");
   const [selectedTicket, setSelectedTicket] = useState<JobOrder | null>(null);
 
+  // Completion remarks modal state
+  const [completingTicketId, setCompletingTicketId] = useState<string | null>(null);
+  const [completionRemarks, setCompletionRemarks] = useState("");
+
   // Category filters — same "ALL / ELECTRICAL / PLUMBING / HVAC / CARPENTRY"
   // pattern as the PPO/Admin queue, applied separately to Assigned Tasks
   // and Completed History so a technician can narrow either list down.
@@ -51,9 +55,15 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
   // else's queue.
   const activeTechnician = activeStaffName || "";
 
-  // Filter tickets assigned specifically to Delfin Ramirez that are approved by PPO and Finance
+  // Tickets assigned to this technician that are dispatched:
+  // - Funded-track: ppoApproved AND financeApproved both needed
+  // - No-fund track: ppoApproved is enough (status moves to In Progress immediately)
   const assignedTickets = useMemo(() => {
-    return tickets.filter((t) => t.assignedStaff === activeTechnician && t.ppoApproved && t.financeApproved);
+    return tickets.filter((t) =>
+      t.assignedStaff === activeTechnician &&
+      t.ppoApproved &&
+      (t.requiresFunds ? t.financeApproved : true)
+    );
   }, [tickets, activeTechnician]);
 
   // Compute stat metrics
@@ -257,7 +267,14 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                   <TicketStub
                     ticket={ticket}
                     isAdmin={false}
-                    onUpdateStatus={onUpdateStatus}
+                    onUpdateStatus={(id, status) => {
+                      if (status === "Completed") {
+                        setCompletingTicketId(id);
+                        setCompletionRemarks("");
+                      } else {
+                        onUpdateStatus(id, status);
+                      }
+                    }}
                     onClick={(ticketId) => {
                       const found = tickets.find(t => t.id === ticketId) || null;
                       setSelectedTicket(found);
@@ -457,8 +474,66 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
         ticket={selectedTicket}
         onClose={() => setSelectedTicket(null)}
         isAdmin={false}
-        onUpdateStatus={onUpdateStatus}
+        onUpdateStatus={(id, status) => {
+          if (status === "Completed") {
+            setCompletingTicketId(id);
+            setCompletionRemarks("");
+            setSelectedTicket(null);
+          } else {
+            onUpdateStatus(id, status);
+          }
+        }}
       />
+
+      {/* Completion Remarks Modal */}
+      {completingTicketId && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-soft-green/30">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-soft-green/10 flex items-center justify-center shrink-0">
+                <CheckCircle className="w-5 h-5 text-soft-green" />
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-base text-[#241012]">Mark as Completed</h3>
+                <p className="text-xs text-slate-500 font-sans mt-0.5">Job Order <strong>{completingTicketId}</strong></p>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1.5">
+                Completion Remarks <span className="text-slate-400 font-normal normal-case">(optional)</span>
+              </label>
+              <textarea
+                value={completionRemarks}
+                onChange={(e) => setCompletionRemarks(e.target.value)}
+                rows={4}
+                placeholder="Describe what was done, e.g. 'Replaced faulty circuit breaker in Room 304. Tested all outlets — power restored.' Leave blank if no special notes."
+                className="w-full bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg p-3 text-sm text-[#2B1210] focus:outline-none focus:border-soft-green resize-none placeholder-slate-400 font-sans leading-relaxed"
+              />
+              <p className="text-xs text-slate-500 mt-1 font-sans">These remarks will be saved to the ticket and shared with the requesting department and PPO.</p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setCompletingTicketId(null); setCompletionRemarks(""); }}
+                className="flex-1 px-4 py-2.5 border border-[#E6DDD3] rounded-lg text-sm font-mono text-slate-700 hover:bg-[#F0EAE4] transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  onUpdateStatus(completingTicketId, "Completed", completionRemarks.trim() || undefined);
+                  setCompletingTicketId(null);
+                  setCompletionRemarks("");
+                }}
+                className="flex-1 px-4 py-2.5 bg-soft-green hover:bg-soft-green/90 text-white rounded-lg text-sm font-mono font-bold transition-colors cursor-pointer"
+              >
+                ✓ Confirm Completed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

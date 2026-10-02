@@ -19,7 +19,7 @@ interface SchoolHeadDashboardProps {
   tickets: JobOrder[];
   onSchoolHeadApprove: (id: string) => void;
   displayName?: string;
-  onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean) => Promise<void>;
+  onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean) => Promise<void>;
   isSubmitting?: boolean;
   officeOptions?: string[];
   requestedByDefault?: string;
@@ -45,10 +45,11 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
   const [selectedTicket, setSelectedTicket] = useState<JobOrder | null>(null);
   const [endorsingId, setEndorsingId] = useState<string | null>(null);
 
-  // Pending: PPO-approved, not yet endorsed by president, not completed
+  // Pending: PPO-approved, funded-track, not yet endorsed by president, not completed
+  // No-fund tickets skip this stage entirely and go straight to In Progress.
   const pendingEndorsementTickets = useMemo(() => {
     return tickets
-      .filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.status !== "Completed")
+      .filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.requiresFunds && t.status !== "Completed")
       .sort((a, b) => b.priorityScore - a.priorityScore);
   }, [tickets]);
 

@@ -1,6 +1,7 @@
 // ============================================================
-// JORS COSCA — Database Migration Script
-// From: Render (expired) → To: Supabase (new)
+// JORS COSCA — Database Migration Script (Render → Render)
+// Use this to copy data between two Render PostgreSQL databases,
+// e.g. when moving to a new Render instance.
 // Run: node migrate-db.mjs
 // ============================================================
 
@@ -8,17 +9,15 @@ import pg from "pg";
 const { Client } = pg;
 
 // ──────────────────────────────────────────────
-// 🔴 STEP 1: Paste your Render (SOURCE) URL here
+// 🔴 SOURCE: the Render database to copy FROM
 // ──────────────────────────────────────────────
 const SOURCE_URL = "postgresql://jors_cosca_db_user:htfeBaHdymuu8G0UVhc64dos1neikedY@dpg-da7fpme7bikc73ajc98g-a.singapore-postgres.render.com/jors_cosca_db";
 
 // ──────────────────────────────────────────────
-// 🟢 STEP 2: Paste your Supabase (TARGET) URL here
-// Get it from: Supabase Dashboard → Project Settings → Database → Connection String (URI)
+// 🟢 TARGET: the Render database to copy TO
+// Paste your new Render internal DATABASE_URL here
 // ──────────────────────────────────────────────
-const TARGET_URL = postgresql://postgres:projectQHYiXovUYGD5mo71
-@db.lufyjjcylwgwqckyhzts.supabase.co: 5432 / postgres
-// ──────────────────────────────────────────────
+const TARGET_URL = "PASTE_YOUR_TARGET_RENDER_URL_HERE";
 
 const TABLES = [
   "users",
@@ -43,23 +42,23 @@ const TABLES = [
 ];
 
 async function migrate() {
-  if (TARGET_URL === "PASTE_YOUR_SUPABASE_URL_HERE") {
-    console.error("❌ Please paste your Supabase URL in the TARGET_URL field first!");
+  if (TARGET_URL === "PASTE_YOUR_TARGET_RENDER_URL_HERE") {
+    console.error("❌ Please paste your target Render DATABASE_URL in the TARGET_URL field first!");
     process.exit(1);
   }
 
   console.log("🔌 Connecting to SOURCE (Render)...");
   const source = new Client({ connectionString: SOURCE_URL, ssl: { rejectUnauthorized: false } });
   await source.connect();
-  console.log("✅ Connected to Render!\n");
+  console.log("✅ Connected to source!\n");
 
-  console.log("🔌 Connecting to TARGET (Supabase)...");
+  console.log("🔌 Connecting to TARGET (Render)...");
   const target = new Client({ connectionString: TARGET_URL, ssl: { rejectUnauthorized: false } });
   await target.connect();
-  console.log("✅ Connected to Supabase!\n");
+  console.log("✅ Connected to target!\n");
 
   // Run schema on target first
-  console.log("📋 Setting up schema on Supabase...");
+  console.log("📋 Setting up schema on target...");
   const { readFileSync } = await import("fs");
   const schema = readFileSync("./backend/schema.sql", "utf-8");
   try {
@@ -133,8 +132,8 @@ async function migrate() {
   await source.end();
   await target.end();
 
-  console.log("\n🎉 Migration complete! Your data is now in Supabase.");
-  console.log("👉 Next step: Update your backend .env with the new Supabase DATABASE_URL");
+  console.log("\n🎉 Migration complete! Your data is now in the target Render database.");
+  console.log("👉 Next step: Update your backend .env with the new Render DATABASE_URL");
 }
 
 migrate().catch(err => {

@@ -22,7 +22,7 @@ import {
 interface FinanceDashboardProps {
   tickets: JobOrder[];
   onFinanceApprove: (id: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
-  onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean) => Promise<void>;
+  onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean) => Promise<void>;
   isSubmitting?: boolean;
   officeOptions?: string[];
   requestedByDefault?: string;
@@ -58,11 +58,12 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
   const [financeNotes, setFinanceNotes] = useState<Record<string, string>>({});
   const [fundingId, setFundingId] = useState<string | null>(null);
 
-  // ── Filters ──────────────────────────────────────────
+  // Only funded-track tickets (requiresFunds = true) ever reach Finance.
+  // No-fund tickets are dispatched directly after PPO approval.
   const pendingFundingTickets = useMemo(
     () =>
       tickets
-        .filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved)
+        .filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.requiresFunds)
         .sort((a, b) => b.priorityScore - a.priorityScore),
     [tickets]
   );
