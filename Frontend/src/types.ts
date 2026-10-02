@@ -67,3 +67,16 @@ export interface Notification {
 
 export type Role = "Admin" | "Dept" | "Staff" | "Report" | "Finance" | "SchoolHead";
 export type ThemeMode = "light" | "dark" | "system";
+
+export interface AuditLogEntry {
+  id: number;
+  jobOrderId: string;
+  actorUserId: number | null;
+  actorName: string | null;
+  action: string;
+  previousValue: string | null;
+  newValue: string | null;
+  reason: string | null;
+  amountPhp: number | null;
+  createdAt: string;
+}

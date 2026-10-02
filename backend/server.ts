@@ -2660,8 +2660,57 @@ app.put("/api/job-orders/:id/budget-items", authenticateToken, requireRole("PPO"
   }
 });
 
+// Approval Audit Log — PPO only. Returns all entries newest-first,
+// joined with users so the actor's full name is included.
+// Optional query param: ?jobOrderId=JO-xxxx to filter by ticket.
+app.get("/api/audit-log", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
+  try {
+    const { jobOrderId } = req.query;
+    const params: any[] = [];
+    let where = "";
+    if (jobOrderId) {
+      params.push(jobOrderId);
+      where = "WHERE a.job_order_id = $1";
+    }
+    const result = await pool.query(
+      `SELECT
+         a.id,
+         a.job_order_id,
+         a.actor_user_id,
+         u.full_name  AS actor_name,
+         a.action,
+         a.previous_value,
+         a.new_value,
+         a.reason,
+         a.amount_php,
+         a.created_at
+       FROM approval_audit_log a
+       LEFT JOIN users u ON u.id = a.actor_user_id
+       ${where}
+       ORDER BY a.created_at DESC`,
+      params
+    );
+    res.json(result.rows.map((r) => ({
+      id: r.id,
+      jobOrderId: r.job_order_id,
+      actorUserId: r.actor_user_id ?? null,
+      actorName: r.actor_name ?? null,
+      action: r.action,
+      previousValue: r.previous_value ?? null,
+      newValue: r.new_value ?? null,
+      reason: r.reason ?? null,
+      amountPhp: r.amount_php != null ? Number(r.amount_php) : null,
+      createdAt: r.created_at,
+    })));
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // AI (or fallback) facilities report — PPO only
 app.post("/api/reports/analyze", authenticateToken, requireRole("PPO"), async (req, res) => {
+
   try {
     const { promptType } = req.body;
     const ordersResult = await pool.query("SELECT * FROM job_orders ORDER BY priority_score DESC");
@@ -2722,10 +2771,11 @@ app.post("/api/reports/analyze", authenticateToken, requireRole("PPO"), async (r
 
 async function applySchemaMigrations() {
   try {
-    const schemaPath = new URL("./schema.sql", import.meta.url);
-    const schemaSql = await fs.readFile(schemaPath, "utf8");
-    await pool.query(schemaSql);
-
+    // ── STEP 1: Add any missing columns FIRST ──────────────────────────────
+    // schema.sql creates indexes that reference these columns. If the table
+    // already exists without the column, the index creation fails with
+    // "column does not exist". Adding columns before running the schema avoids
+    // that ordering problem entirely.
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS estimated_cost NUMERIC(12,2)");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS approved_amount NUMERIC(12,2)");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS finance_notes TEXT");
@@ -2742,6 +2792,11 @@ async function applySchemaMigrations() {
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS emergency_bypassed BOOLEAN DEFAULT FALSE");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS requires_funds BOOLEAN DEFAULT FALSE");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS completion_remarks TEXT");
+
+    // ── STEP 2: Run the full schema (creates tables + indexes safely) ───────
+    const schemaPath = new URL("./schema.sql", import.meta.url);
+    const schemaSql = await fs.readFile(schemaPath, "utf8");
+    await pool.query(schemaSql);
 
     // Self-healing FK guardrail: deleting a staff/user account should never
     // be silently blocked by rows that still reference it elsewhere in the
