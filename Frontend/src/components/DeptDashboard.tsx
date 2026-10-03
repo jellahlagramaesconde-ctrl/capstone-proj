@@ -371,7 +371,7 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
       {isFormOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
           <div className="bg-[#FAF7F5] border border-[#E6DDD3] rounded-2xl sm:rounded-3xl shadow-2xl max-w-xl w-full max-h-[92vh] overflow-y-auto overflow-x-hidden">
-            
+
             {/* Crimson Header Banner */}
             <div className="sticky top-0 z-10 bg-[#7C1D2D] text-white px-5 sm:px-6 py-4 flex items-center justify-between shadow-md">
               <div className="flex items-center gap-3">
@@ -435,7 +435,7 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
                         value={requestedByName}
                         onChange={(e) => setRequestedByName(e.target.value)}
                         required
-                        placeholder="Prof. Jellah Esconde"
+                        placeholder="Prof. May Lin"
                         className="w-full bg-white border border-[#DDD2C8] focus:border-[#7C1D2D] focus:ring-2 focus:ring-[#7C1D2D]/20 rounded-xl pl-9 pr-3 py-2.5 text-sm text-[#2B1210] outline-none placeholder-slate-400 font-sans shadow-2xs"
                       />
                       <User className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
@@ -480,15 +480,13 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
                     onDragLeave={handleDrag}
                     onDrop={handleDrop}
                     onClick={() => attachedFiles.length < MAX_PHOTOS && triggerFileInput()}
-                    className={`border-2 border-dashed rounded-xl p-4 sm:p-5 flex flex-col items-center justify-center transition-all bg-white shadow-2xs ${
-                      attachedFiles.length >= MAX_PHOTOS ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-                    } ${
-                      dragActive
+                    className={`border-2 border-dashed rounded-xl p-4 sm:p-5 flex flex-col items-center justify-center transition-all bg-white shadow-2xs ${attachedFiles.length >= MAX_PHOTOS ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                      } ${dragActive
                         ? "border-[#7C1D2D] bg-[#7C1D2D]/5"
                         : attachedFiles.length > 0
-                        ? "border-emerald-500 bg-emerald-50/20"
-                        : "border-[#D6CCC2] hover:border-[#7C1D2D]"
-                    }`}
+                          ? "border-emerald-500 bg-emerald-50/20"
+                          : "border-[#D6CCC2] hover:border-[#7C1D2D]"
+                      }`}
                   >
                     <input
                       type="file"
@@ -589,15 +587,13 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
                   {/* Needs funds / materials Card */}
                   <div
                     onClick={() => setRequiresFunds(!requiresFunds)}
-                    className={`bg-white border rounded-xl p-3.5 cursor-pointer transition-all flex items-start gap-3 shadow-2xs ${
-                      requiresFunds
+                    className={`bg-white border rounded-xl p-3.5 cursor-pointer transition-all flex items-start gap-3 shadow-2xs ${requiresFunds
                         ? "border-[#7C1D2D] ring-2 ring-[#7C1D2D]/15 bg-[#7C1D2D]/[0.02]"
                         : "border-[#DDD2C8] hover:border-[#7C1D2D]/40"
-                    }`}
+                      }`}
                   >
-                    <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                      requiresFunds ? "bg-[#7C1D2D] border-[#7C1D2D] text-white" : "border-slate-300 bg-white"
-                    }`}>
+                    <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${requiresFunds ? "bg-[#7C1D2D] border-[#7C1D2D] text-white" : "border-slate-300 bg-white"
+                      }`}>
                       {requiresFunds && <Check className="w-3 h-3 stroke-[3]" />}
                     </div>
                     <div>
@@ -617,15 +613,13 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
                       setIsEmergency(next);
                       setSeverity(next ? "Emergency" : "Regular");
                     }}
-                    className={`bg-white border rounded-xl p-3.5 cursor-pointer transition-all flex items-start gap-3 shadow-2xs ${
-                      isEmergency
+                    className={`bg-white border rounded-xl p-3.5 cursor-pointer transition-all flex items-start gap-3 shadow-2xs ${isEmergency
                         ? "border-red-500 ring-2 ring-red-500/15 bg-red-50/20"
                         : "border-[#DDD2C8] hover:border-red-400/40"
-                    }`}
+                      }`}
                   >
-                    <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                      isEmergency ? "bg-red-600 border-red-600 text-white" : "border-slate-300 bg-white"
-                    }`}>
+                    <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${isEmergency ? "bg-red-600 border-red-600 text-white" : "border-slate-300 bg-white"
+                      }`}>
                       {isEmergency && <Check className="w-3 h-3 stroke-[3]" />}
                     </div>
                     <div>

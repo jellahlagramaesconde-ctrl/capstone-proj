@@ -243,32 +243,46 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
         {/* Modal Container */}
         <div className="bg-white border border-[#E6DDD3] rounded-t-xl sm:rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[95vh] sm:max-h-[90vh] sm:my-8">
 
-          {/* Header - Styled like an official physical plant requisition form header */}
-          <div className="p-3.5 sm:p-5 border-b border-[#E6DDD3] bg-[#F5F1EC] flex items-center justify-between">
+          {/* Crimson Header Banner */}
+          <div className="sticky top-0 z-10 bg-[#7C1D2D] text-white px-5 sm:px-6 py-4 flex items-center justify-between shadow-md">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded bg-[#6B1420]/10 text-[#6B1420]">
+              <div className="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center text-white shrink-0">
                 <FileText className="w-5 h-5" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-bold text-[#6B1420] uppercase tracking-wider">
-                    COSCA Facilities Workorder
+                  <span className="text-[10px] sm:text-[11px] font-mono tracking-widest uppercase text-white/75 leading-none">
+                    JORS · COSCA · TICKET #{ticket.id}
                   </span>
-                  <span className="text-xs bg-[#E6DDD3] px-2 py-0.5 rounded-sm font-mono font-bold text-slate-600">
-                    {ticket.id}
-                  </span>
+                  {ticket.isEmergency && (
+                    <span className="text-[10px] bg-red-500/80 text-white px-2 py-0.5 rounded-full font-mono font-bold uppercase animate-pulse">
+                      EMERGENCY
+                    </span>
+                  )}
                 </div>
-                <h3 className="font-display font-semibold text-lg text-[#241012] mt-0.5">
-                  Requisition Details Sheet
+                <h3 className="text-base sm:text-lg font-bold text-white tracking-tight mt-0.5">
+                  Requisition Details Sheet: {ticket.office}
                 </h3>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-600 hover:text-[#241012] hover:bg-[#F0EAE4] transition-all cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="p-1.5 rounded-full text-white/75 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Print Job Ticket"
+              >
+                <Printer className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-1.5 rounded-full text-white/75 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Close sheet"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           {/* Scrollable Form Body */}
@@ -511,6 +525,19 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                 </div>
               )}
 
+            {/* Benefits of the Request (AI & Rule-Based Intelligence) */}
+            {ticket.notes && (
+              <div className="bg-[#FAF7F5] border border-[#E6DDD3] rounded-xl p-4 shadow-2xs">
+                <div className="flex items-center gap-2 text-xs font-mono font-bold text-[#7C1D2D] uppercase tracking-wider mb-1.5">
+                  <Sparkles className="w-4 h-4 text-[#7C1D2D]" />
+                  <span>Benefits of the Request &amp; Operational Impact</span>
+                </div>
+                <p className="text-sm text-[#2B1210] font-sans leading-relaxed">
+                  {ticket.notes}
+                </p>
+              </div>
+            )}
+
             <BudgetRequisitionItems
               items={ticket.budgetItems || []}
               total={ticket.budgetItemsTotal || 0}
@@ -723,43 +750,75 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
               </div>
             </div>
 
-            {/* Allocation & Assigned Staff */}
-            <div className="border border-[#E6DDD3] p-4 rounded-lg bg-[#F5F1EC]">
+            {/* Matched Maintenance Staff & Allocation */}
+            <div className="border border-[#E6DDD3] p-4 rounded-xl bg-white shadow-2xs">
               <span className="text-xs font-mono tracking-widest text-slate-600 uppercase font-bold block mb-3">
-                DISPATCH & REQUISITION ALLOCATION
+                MATCHED MAINTENANCE STAFF &amp; DISPATCH ALLOCATION
               </span>
 
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-white border border-[#E6DDD3] flex items-center justify-center text-slate-700">
+                  <div className="w-10 h-10 rounded-xl bg-[#FAF7F5] border border-[#E6DDD3] flex items-center justify-center text-slate-700">
                     {ticket.assignedStaff === "Outsource" ? (
                       <AlertTriangle className="w-5 h-5 text-safety-amber" />
                     ) : (
-                      <User className="w-5 h-5 text-[#6B1420]" />
+                      <User className="w-5 h-5 text-[#7C1D2D]" />
                     )}
                   </div>
                   <div>
-                    <h5 className="font-semibold text-sm text-[#2B1210]">
-                      {ticket.assignedStaff}
-                    </h5>
-                    <p className="text-sm text-slate-700 font-sans mt-0.5">
+                    <div className="flex items-center gap-2">
+                      <h5 className="font-semibold text-sm text-[#2B1210]">
+                        {ticket.assignedStaff}
+                      </h5>
+                      {ticket.assignedStaffList && ticket.assignedStaffList.find(s => s.name === ticket.assignedStaff)?.isLead && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#7C1D2D]/10 text-[#7C1D2D] font-bold">
+                          Lead Technician
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600 font-sans mt-0.5">
                       {ticket.assignedStaff === "Outsource"
                         ? "Outsourced to industrial specialists due to certification requirements."
-                        : "Internal Physical Plant Maintenance Roster Specialist."}
+                        : `Assigned specialist for ${ticket.jobType} maintenance.`}
                     </p>
                   </div>
                 </div>
 
                 {ticket.assignedStaff !== "Outsource" && ticket.matchScore > 0 && (
-                  <div className="bg-[#6B1420]/10 border border-[#6B1420]/20 p-2 rounded-lg text-right">
-                    <span className="text-xs font-mono text-slate-600 uppercase block">SPECIALTY MATCH</span>
-                    <div className="flex items-center gap-1 justify-end text-[#6B1420] font-mono font-bold text-sm mt-0.5">
-                      <Star className="w-3.5 h-3.5 fill-current" />
+                  <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-right shrink-0">
+                    <span className="text-[10px] font-mono text-emerald-700 uppercase font-bold block">SPECIALTY MATCH</span>
+                    <div className="flex items-center gap-1 justify-end text-emerald-800 font-mono font-bold text-sm mt-0.5">
+                      <Star className="w-3.5 h-3.5 fill-current text-emerald-600" />
                       <span>{ticket.matchScore}% Accuracy</span>
                     </div>
                   </div>
                 )}
               </div>
+
+              {/* Multi-person team roster if assigned */}
+              {ticket.assignedStaffList && ticket.assignedStaffList.length > 1 && (
+                <div className="mt-3 pt-3 border-t border-[#F0EAE4]">
+                  <span className="text-[11px] font-mono text-slate-500 uppercase font-bold block mb-2">
+                    Dispatched Team Roster ({ticket.assignedStaffList.length} Technicians):
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {ticket.assignedStaffList.map((member) => (
+                      <span
+                        key={member.id}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono ${
+                          member.isLead
+                            ? "bg-[#7C1D2D] text-white font-bold"
+                            : "bg-[#F5F1EC] text-[#2B1210] border border-[#DDD2C8]"
+                        }`}
+                      >
+                        <User className="w-3 h-3" />
+                        {member.name} {member.isLead && "(Lead)"}
+                        <span className="text-[10px] opacity-75 font-normal">({member.matchScore}%)</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Institutional Requisition Authorization Slip / Stamps */}
