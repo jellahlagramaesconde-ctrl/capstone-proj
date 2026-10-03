@@ -35,7 +35,8 @@ import {
   Type,
   Pencil,
   Save,
-  Monitor
+  Monitor,
+  Clock
 } from "lucide-react";
 import { UserAccount } from "./AccountManagementModal";
 import { JobOrder } from "../types";
@@ -96,6 +97,9 @@ interface SettingsModalProps {
   // Same OTP-via-email flow as the login page's "Forgot Access Key"
   onRequestPasswordOtp?: (email: string) => Promise<{ ok: boolean; message?: string; error?: string }>;
   onConfirmPasswordReset?: (email: string, otp: string, newPassword: string) => Promise<{ ok: boolean; message?: string; error?: string }>;
+  // SLA Timeline Defaults (PPO-configurable)
+  slaDefaults?: { regularDays: number; moderateDays: number; emergencyHours: number };
+  onUpdateSlaDefaults?: (sla: { regularDays: number; moderateDays: number; emergencyHours: number }) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export interface SkillOption {
@@ -152,8 +156,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateOwnProfile,
   onRequestPasswordOtp,
   onConfirmPasswordReset,
+  slaDefaults = { regularDays: 5, moderateDays: 2, emergencyHours: 4 },
+  onUpdateSlaDefaults,
 }) => {
-  type TabType = "accounts" | "notifications" | "appearance" | "profile" | "backup" | "workload" | "security" | "system";
+  type TabType = "accounts" | "notifications" | "appearance" | "profile" | "backup" | "workload" | "sla" | "security" | "system";
 
   // Role-based tab visibility:
   //  - PPO (and legacy "Admin"/no-role fallback): the full suite, unchanged.
@@ -171,6 +177,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [profileFullName, setProfileFullName] = useState(currentUser?.fullName || "");
   const [profileEmail, setProfileEmail] = useState(currentUser?.email || "");
   const [profileSaveBusy, setProfileSaveBusy] = useState(false);
+
+  // SLA Timeline Configuration State
+  const [slaRegularDays, setSlaRegularDays] = useState<number>(slaDefaults?.regularDays ?? 5);
+  const [slaModerateDays, setSlaModerateDays] = useState<number>(slaDefaults?.moderateDays ?? 2);
+  const [slaEmergencyHours, setSlaEmergencyHours] = useState<number>(slaDefaults?.emergencyHours ?? 4);
+  const [slaBusy, setSlaBusy] = useState(false);
+
+  useEffect(() => {
+    if (slaDefaults) {
+      setSlaRegularDays(slaDefaults.regularDays ?? 5);
+      setSlaModerateDays(slaDefaults.moderateDays ?? 2);
+      setSlaEmergencyHours(slaDefaults.emergencyHours ?? 4);
+    }
+  }, [slaDefaults]);
+
+  const handleSaveSla = async () => {
+    if (!onUpdateSlaDefaults) return;
+    setSlaBusy(true);
+    const res = await onUpdateSlaDefaults({
+      regularDays: Number(slaRegularDays) || 5,
+      moderateDays: Number(slaModerateDays) || 2,
+      emergencyHours: Number(slaEmergencyHours) || 4,
+    });
+    setSlaBusy(false);
+    if (res.ok) {
+      showToast("SLA request timeline standards updated successfully.");
+    } else {
+      alert(res.error || "Failed to update SLA timelines.");
+    }
+  };
   // Change Password — same 3-step OTP-via-email flow as "Forgot Access Key"
   const [pwStep, setPwStep] = useState<1 | 2 | 3>(1);
   const [pwOtp, setPwOtp] = useState("");
@@ -704,6 +740,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             >
               <Sliders className="w-3.5 h-3.5" />
               <span>Worker Rules</span>
+            </button>
+          )}
+
+          {canManageAccounts && (
+            <button
+              onClick={() => setActiveTab("sla")}
+              className={`shrink-0 py-1.5 px-3 rounded-lg font-display font-medium text-xs flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${activeTab === "sla"
+                ? "bg-[#6B1420] text-white font-bold shadow-sm"
+                : "bg-white text-slate-700 border border-[#E6DDD3] hover:text-[#241012] hover:border-[#DDD2C8]"
+                }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>SLA &amp; Timelines</span>
             </button>
           )}
 
@@ -1808,6 +1857,174 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     );
                   })}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: SLA & Request Timelines */}
+          {activeTab === "sla" && canManageAccounts && (
+            <div className="space-y-6">
+              <div className="p-4 bg-[#F7F4F0] border border-[#E6DDD3] rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h4 className="font-display font-bold text-sm text-[#241012] flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-[#6B1420]" />
+                    Service Level Agreement (SLA) &amp; Request Timelines
+                  </h4>
+                  <p className="text-xs text-slate-700 font-sans mt-0.5">
+                    Define default turnaround times for each request severity level. Every newly submitted request automatically computes its deadline from these values.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveSla}
+                  disabled={slaBusy}
+                  className="px-4 py-2 bg-[#6B1420] hover:bg-[#541019] text-white rounded-lg font-mono font-bold text-xs flex items-center gap-2 cursor-pointer shadow-xs shrink-0 disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  {slaBusy ? "Saving..." : "Save SLA Timelines"}
+                </button>
+              </div>
+
+              {/* 3 Severity Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 1. Regular */}
+                <div className="bg-white border border-[#E6DDD3] rounded-xl p-4 flex flex-col justify-between shadow-xs">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-600">
+                        Level 1 Severity
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                        Regular
+                      </span>
+                    </div>
+                    <h5 className="font-display font-bold text-sm text-[#241012] mb-1">
+                      Standard Maintenance
+                    </h5>
+                    <p className="text-xs text-slate-600 font-sans leading-relaxed mb-4">
+                      Routine repairs, standard wear and tear, preventative inspections, and light fixture fixes.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 pt-3 border-t border-[#E6DDD3]">
+                    <div>
+                      <label className="block text-[11px] font-mono font-bold text-slate-700 uppercase mb-1">
+                        Timeline Target (Days)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="60"
+                          value={slaRegularDays}
+                          onChange={(e) => setSlaRegularDays(Math.max(1, Number(e.target.value)))}
+                          className="w-full text-xs font-mono font-bold px-3 py-2 rounded-lg border border-[#E6DDD3] bg-[#FBF9F6] text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                        />
+                        <span className="text-xs font-mono text-slate-600 font-bold shrink-0">Days</span>
+                      </div>
+                    </div>
+                    <div className="p-2 rounded bg-[#F7F4F0] text-[11px] font-mono text-slate-600">
+                      ⚡ Deadline: <span className="font-bold text-[#6B1420]">+{slaRegularDays} days</span> from submission
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Moderate */}
+                <div className="bg-white border border-amber-200 rounded-xl p-4 flex flex-col justify-between shadow-xs">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-mono font-bold uppercase tracking-wider text-amber-700">
+                        Level 2 Severity
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                        Moderate
+                      </span>
+                    </div>
+                    <h5 className="font-display font-bold text-sm text-[#241012] mb-1">
+                      Priority Non-Hazardous
+                    </h5>
+                    <p className="text-xs text-slate-600 font-sans leading-relaxed mb-4">
+                      Issues causing office operational delays or partial disruptions without direct life-safety threat.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 pt-3 border-t border-amber-200">
+                    <div>
+                      <label className="block text-[11px] font-mono font-bold text-slate-700 uppercase mb-1">
+                        Timeline Target (Days)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="30"
+                          value={slaModerateDays}
+                          onChange={(e) => setSlaModerateDays(Math.max(1, Number(e.target.value)))}
+                          className="w-full text-xs font-mono font-bold px-3 py-2 rounded-lg border border-[#E6DDD3] bg-[#FBF9F6] text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                        />
+                        <span className="text-xs font-mono text-slate-600 font-bold shrink-0">Days</span>
+                      </div>
+                    </div>
+                    <div className="p-2 rounded bg-amber-50 text-[11px] font-mono text-amber-800">
+                      ⚡ Deadline: <span className="font-bold text-amber-900">+{slaModerateDays} days</span> from submission
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Emergency */}
+                <div className="bg-white border border-red-200 rounded-xl p-4 flex flex-col justify-between shadow-xs">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-mono font-bold uppercase tracking-wider text-red-600">
+                        Level 3 Severity
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-red-100 text-red-700 border border-red-300 animate-pulse">
+                        🚨 Emergency
+                      </span>
+                    </div>
+                    <h5 className="font-display font-bold text-sm text-[#241012] mb-1">
+                      Critical Urgent Hazard
+                    </h5>
+                    <p className="text-xs text-slate-600 font-sans leading-relaxed mb-4">
+                      Flooding, electrical short-circuits, structural hazards, or campus safety emergencies needing immediate dispatch.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 pt-3 border-t border-red-200">
+                    <div>
+                      <label className="block text-[11px] font-mono font-bold text-slate-700 uppercase mb-1">
+                        Timeline Target (Hours)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="72"
+                          value={slaEmergencyHours}
+                          onChange={(e) => setSlaEmergencyHours(Math.max(1, Number(e.target.value)))}
+                          className="w-full text-xs font-mono font-bold px-3 py-2 rounded-lg border border-red-300 bg-red-50/30 text-red-900 focus:outline-none focus:ring-1 focus:ring-red-500"
+                        />
+                        <span className="text-xs font-mono text-red-700 font-bold shrink-0">Hours</span>
+                      </div>
+                    </div>
+                    <div className="p-2 rounded bg-red-50 text-[11px] font-mono text-red-700">
+                      🚨 Live countdown: <span className="font-bold text-red-900">{slaEmergencyHours} hours</span> max duration
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Informational Guidance Callout */}
+              <div className="p-4 bg-[#FBF9F6] border border-[#E6DDD3] rounded-xl text-xs font-sans text-slate-700 space-y-2">
+                <span className="font-bold text-[#241012] flex items-center gap-1.5 font-display text-sm">
+                  <Info className="w-4 h-4 text-[#6B1420]" />
+                  How SLA Deadlines and Extensions Work in JORS COSCA
+                </span>
+                <ul className="list-disc list-inside space-y-1 pl-1 text-slate-600 leading-relaxed">
+                  <li><strong>Automatic Assignment:</strong> When a department head or administrator logs a request, the system instantly timestamps its completion deadline according to the active SLA configuration above.</li>
+                  <li><strong>Live Real-Time Badges:</strong> Ticket stubs and detail modals show a countdown badge indicating the remaining time, turning amber when close to expiry and pulsing red when overdue.</li>
+                  <li><strong>PPO Deadline Extension:</strong> If unforeseen delays occur (such as awaiting specialized procurement parts or inclement weather), PPO officers can click <em>"Extend / Edit Deadline"</em> directly in the ticket details modal. Every extension requires an audit reason and is recorded in the institutional logs.</li>
+                </ul>
               </div>
             </div>
           )}

@@ -3,6 +3,7 @@ import { JobOrder } from "../types";
 import { getJobOrderCost, getJobOrderCostDisplay, formatPeso } from "../priceUtils";
 import { PrintableJobOrder } from "./PrintableJobOrder";
 import { BudgetRequisitionItems } from "./BudgetRequisitionItems";
+import { DeadlineBadge } from "./DeadlineBadge";
 import {
   X,
   Calendar,
@@ -35,6 +36,7 @@ interface TicketDetailsModalProps {
   onSchoolHeadApprove?: (ticketId: string) => void;
   onDelete?: (ticketId: string) => void;
   onSaveBudgetItems?: (ticketId: string, items: { qty: number; unit?: string; description: string; unitCost: number }[]) => Promise<void>;
+  onExtendDeadline?: (ticketId: string, params: { extensionHours?: number; extensionDays?: number; newDeadline?: string; reason: string }) => Promise<{ ok: boolean; error?: string } | void>;
 }
 
 export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
@@ -49,6 +51,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
   onSchoolHeadApprove,
   onDelete,
   onSaveBudgetItems,
+  onExtendDeadline,
 }) => {
   if (!isOpen || !ticket) return null;
 
@@ -58,6 +61,15 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
   const [modalFinanceAppr, setModalFinanceAppr] = useState<string>("");
   const [modalFinanceNotes, setModalFinanceNotes] = useState<string>("");
   const [modalEmergencyOverride, setModalEmergencyOverride] = useState<boolean>(false);
+
+  // Extend Deadline state
+  const [isExtendingDeadline, setIsExtendingDeadline] = useState(false);
+  const [extensionHours, setExtensionHours] = useState(0);
+  const [extensionDays, setExtensionDays] = useState(1);
+  const [extensionReason, setExtensionReason] = useState("");
+  const [extensionBusy, setExtensionBusy] = useState(false);
+  const [extensionError, setExtensionError] = useState<string | null>(null);
+  const [extensionSuccess, setExtensionSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (ticket) {
@@ -70,8 +82,74 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
       setModalFinanceAppr(ticket.approvedAmount !== undefined ? String(ticket.approvedAmount) : String(defaultEst));
       setModalFinanceNotes(ticket.financeNotes || "");
       setModalEmergencyOverride(false);
+      setIsExtendingDeadline(false);
+      setExtensionReason("");
+      setExtensionHours(0);
+      setExtensionDays(1);
+      setExtensionError(null);
+      setExtensionSuccess(null);
     }
   }, [ticket, isOpen]);
+
+  const handleApplyExtension = async () => {
+    if (!extensionReason.trim()) {
+      setExtensionError("Please provide an audit reason for the extension.");
+      return;
+    }
+    setExtensionBusy(true);
+    setExtensionError(null);
+    setExtensionSuccess(null);
+
+    const payload = {
+      extensionHours,
+      extensionDays,
+      reason: extensionReason.trim(),
+    };
+
+    if (onExtendDeadline) {
+      const res = await onExtendDeadline(ticket.id, payload);
+      setExtensionBusy(false);
+      if (res && res.ok === false) {
+        setExtensionError(res.error || "Failed to extend deadline.");
+      } else {
+        setExtensionSuccess("Deadline successfully extended.");
+        setTimeout(() => {
+          setIsExtendingDeadline(false);
+          setExtensionSuccess(null);
+        }, 1500);
+      }
+    } else {
+      try {
+        const token = localStorage.getItem("jors_token");
+        const res = await fetch(`/api/job-orders/${ticket.id}/extend-deadline`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        setExtensionBusy(false);
+        if (!res.ok) {
+          setExtensionError(data.error || "Failed to extend deadline.");
+        } else {
+          setExtensionSuccess("Deadline successfully extended.");
+          if (data.ticket?.deadline) {
+            ticket.deadline = data.ticket.deadline;
+            ticket.deadlineExtensionReason = data.ticket.deadlineExtensionReason;
+          }
+          setTimeout(() => {
+            setIsExtendingDeadline(false);
+            setExtensionSuccess(null);
+          }, 1500);
+        }
+      } catch (err: any) {
+        setExtensionBusy(false);
+        setExtensionError(err?.message || "Could not reach server.");
+      }
+    }
+  };
 
   const isCompleted = ticket.status === "Completed";
   const isUrgent = ticket.priorityScore >= 75 && !isCompleted;
@@ -233,6 +311,169 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                   {ticket.status.toUpperCase()}
                 </span>
               </div>
+            </div>
+
+            {/* SLA Timeline & Resolution Target */}
+            <div className="bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E6DDD3] pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded bg-[#6B1420]/10 text-[#6B1420]">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-mono tracking-wider uppercase font-bold text-slate-600 block">
+                      SLA TIMELINE &amp; RESOLUTION DEADLINE
+                    </span>
+                    <span className="text-xs font-sans text-slate-700">
+                      Severity: <strong className="text-[#241012] font-mono">{ticket.severity || (ticket.isEmergency ? "Emergency" : "Regular")}</strong>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Live Deadline Badge */}
+                <div className="flex items-center gap-2">
+                  <DeadlineBadge
+                    severity={ticket.severity || (ticket.isEmergency ? "Emergency" : "Regular")}
+                    deadline={ticket.deadline}
+                    compact={false}
+                  />
+
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsExtendingDeadline(!isExtendingDeadline);
+                        setExtensionError(null);
+                        setExtensionSuccess(null);
+                      }}
+                      className="px-2.5 py-1 bg-white border border-[#E6DDD3] hover:border-[#6B1420] text-[#6B1420] rounded-lg text-xs font-mono font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      {isExtendingDeadline ? "Close" : "Extend / Edit"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Deadline details row */}
+              <div className="flex flex-wrap items-center justify-between text-xs font-mono gap-2 text-slate-700">
+                <div>
+                  <span className="text-slate-600 uppercase font-semibold">Target Deadline: </span>
+                  <span className="font-bold text-[#241012]">
+                    {ticket.deadline
+                      ? new Date(ticket.deadline).toLocaleString(undefined, {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "Calculating from SLA defaults..."}
+                  </span>
+                </div>
+
+                {ticket.deadlineExtensionReason && (
+                  <div className="text-[11px] font-sans bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-1 rounded">
+                    ⚠️ <strong>Extension Logged:</strong> "{ticket.deadlineExtensionReason}"
+                  </div>
+                )}
+              </div>
+
+              {/* Inline Extend Deadline Panel (PPO Admin) */}
+              {isExtendingDeadline && (
+                <div className="p-3.5 bg-white border border-[#6B1420]/30 rounded-lg space-y-3 mt-3 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between border-b border-[#E6DDD3] pb-2">
+                    <span className="text-xs font-mono font-bold text-[#6B1420] uppercase flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      Extend Deadline For Job Order {ticket.id}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-600">Requires audit reason</span>
+                  </div>
+
+                  {extensionError && (
+                    <div className="p-2 bg-red-50 text-red-700 text-xs rounded border border-red-200">
+                      {extensionError}
+                    </div>
+                  )}
+
+                  {extensionSuccess && (
+                    <div className="p-2 bg-emerald-50 text-emerald-700 text-xs rounded border border-emerald-200">
+                      {extensionSuccess}
+                    </div>
+                  )}
+
+                  {/* Quick Add Presets */}
+                  <div>
+                    <label className="block text-[11px] font-mono font-bold text-slate-700 uppercase mb-1.5">
+                      Select Extension Duration:
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { label: "+2 Hours", hours: 2, days: 0 },
+                        { label: "+4 Hours", hours: 4, days: 0 },
+                        { label: "+8 Hours", hours: 8, days: 0 },
+                        { label: "+1 Day", hours: 0, days: 1 },
+                        { label: "+2 Days", hours: 0, days: 2 },
+                        { label: "+3 Days", hours: 0, days: 3 },
+                        { label: "+1 Week", hours: 0, days: 7 },
+                      ].map((preset) => {
+                        const isSelected = extensionHours === preset.hours && extensionDays === preset.days;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => {
+                              setExtensionHours(preset.hours);
+                              setExtensionDays(preset.days);
+                            }}
+                            className={`px-2.5 py-1 rounded text-xs font-mono font-bold border transition-colors cursor-pointer ${
+                              isSelected
+                                ? "bg-[#6B1420] text-white border-[#6B1420]"
+                                : "bg-[#F5F1EC] text-slate-700 border-[#E6DDD3] hover:bg-[#EAE4DC]"
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Reason input */}
+                  <div>
+                    <label className="block text-[11px] font-mono font-bold text-slate-700 uppercase mb-1">
+                      Reason for Extension *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={extensionReason}
+                      onChange={(e) => setExtensionReason(e.target.value)}
+                      placeholder="e.g. Waiting for delivery of replacement compressor / Weather delays..."
+                      className="w-full text-xs font-sans px-3 py-2 border border-[#E6DDD3] rounded-lg bg-[#FBF9F6] text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsExtendingDeadline(false)}
+                      className="px-3 py-1.5 text-xs font-mono text-slate-600 hover:text-slate-800 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleApplyExtension}
+                      disabled={extensionBusy || !extensionReason.trim()}
+                      className="px-4 py-1.5 bg-[#6B1420] hover:bg-[#541019] text-white rounded-lg text-xs font-mono font-bold cursor-pointer disabled:opacity-50 shadow-xs"
+                    >
+                      {extensionBusy ? "Extending..." : "Confirm Extension"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Description Section */}

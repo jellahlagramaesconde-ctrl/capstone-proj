@@ -215,6 +215,57 @@ export default function App() {
     }
   };
 
+  // SLA Timeline Configuration Defaults State
+  const [slaDefaults, setSlaDefaults] = useState<{ regularDays: number; moderateDays: number; emergencyHours: number }>({
+    regularDays: 5,
+    moderateDays: 2,
+    emergencyHours: 4,
+  });
+
+  const handleUpdateSlaDefaults = async (sla: { regularDays: number; moderateDays: number; emergencyHours: number }) => {
+    try {
+      const res = await authedFetch("/api/settings/sla", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sla),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSlaDefaults({
+          regularDays: data.regularDays,
+          moderateDays: data.moderateDays,
+          emergencyHours: data.emergencyHours,
+        });
+        return { ok: true };
+      }
+      const errData = await res.json().catch(() => null);
+      return { ok: false, error: errData?.error || "Failed to update SLA settings." };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || "Failed to update SLA settings." };
+    }
+  };
+
+  const handleExtendDeadline = async (
+    ticketId: string,
+    params: { extensionHours?: number; extensionDays?: number; newDeadline?: string; reason: string }
+  ) => {
+    try {
+      const res = await authedFetch(`/api/job-orders/${ticketId}/extend-deadline`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      if (res.ok) {
+        await fetchDatabase();
+        return { ok: true };
+      }
+      const errData = await res.json().catch(() => null);
+      return { ok: false, error: errData?.error || "Failed to extend deadline." };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || "Failed to extend deadline." };
+    }
+  };
+
   const handleOpenForgotPassword = (defaultEmailOrUser?: string) => {
     setRecoveryStep(1);
     setRecoveryEmail(defaultEmailOrUser || "");
@@ -596,6 +647,23 @@ export default function App() {
         }
       } catch (limitErr) {
         console.warn("Worker task limit fetch skipped:", limitErr);
+      }
+
+      // Fetch SLA settings defaults
+      try {
+        const slaRes = await authedFetch("/api/settings/sla");
+        if (slaRes.ok) {
+          const slaData = await slaRes.json();
+          if (slaData) {
+            setSlaDefaults({
+              regularDays: slaData.regularDays ?? 5,
+              moderateDays: slaData.moderateDays ?? 2,
+              emergencyHours: slaData.emergencyHours ?? 4,
+            });
+          }
+        }
+      } catch (slaErr) {
+        console.warn("SLA settings fetch skipped:", slaErr);
       }
 
       const logsRes = await authedFetch("/api/logs");
@@ -1034,7 +1102,15 @@ export default function App() {
   );
 
   // Submit Job Request (Screen 2)
-  const handleSubmitRequest = async (office: string, description: string, requestedByName: string, isEmergency: boolean = false, photoUrls?: string[], requiresFunds?: boolean) => {
+  const handleSubmitRequest = async (
+    office: string,
+    description: string,
+    requestedByName: string,
+    isEmergency: boolean = false,
+    photoUrls?: string[],
+    requiresFunds?: boolean,
+    severity?: "Regular" | "Moderate" | "Emergency"
+  ) => {
     setIsSubmitting(true);
     setNetworkError(null);
     // 30-second hard timeout — the backend AI parsing step (Gemini) has its
@@ -1047,7 +1123,15 @@ export default function App() {
       const res = await authedFetch("/api/job-orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ office, description, requestedByName, isEmergency, requiresFunds: Boolean(requiresFunds), photoUrls }),
+        body: JSON.stringify({
+          office,
+          description,
+          requestedByName,
+          isEmergency: isEmergency || severity === "Emergency",
+          requiresFunds: Boolean(requiresFunds),
+          photoUrls,
+          severity: severity || (isEmergency ? "Emergency" : "Regular"),
+        }),
         signal: controller.signal,
       });
       clearTimeout(submitTimeout);
@@ -1986,6 +2070,7 @@ export default function App() {
                   onFinanceApprove={handleFinanceApprove}
                   onPpoBypassPresident={handlePpoBypassPresident}
                   onSaveBudgetItems={handleSaveBudgetItems}
+                  onExtendDeadline={handleExtendDeadline}
                   onSubmitRequest={handleSubmitRequest}
                   isSubmitting={isSubmitting}
                   officeOptions={[...Object.values(DEPT_OFFICE_LABELS), ...ADMIN_OFFICE_LABELS]}
@@ -2103,6 +2188,8 @@ export default function App() {
             onUpdateOwnProfile={handleUpdateOwnProfile}
             onRequestPasswordOtp={requestPasswordResetOtp}
             onConfirmPasswordReset={confirmPasswordResetWithOtp}
+            slaDefaults={slaDefaults}
+            onUpdateSlaDefaults={handleUpdateSlaDefaults}
           />
         </React.Fragment>
       )}

@@ -10,7 +10,7 @@ interface DeptDashboardProps {
   notifications: Notification[];
   // The real, authenticated department name — no more hardcoded office.
   officeName: string;
-  onSubmitRequest: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[]) => Promise<void>;
+  onSubmitRequest: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean, severity?: "Regular" | "Moderate" | "Emergency") => Promise<void>;
   isSubmitting: boolean;
   onTicketClick?: (ticketId: string) => void;
   /** Whether the backend actually has Gemini configured right now. */
@@ -28,6 +28,7 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
 }) => {
   const [description, setDescription] = useState("");
   const [requestedByName, setRequestedByName] = useState("");
+  const [severity, setSeverity] = useState<"Regular" | "Moderate" | "Emergency">("Regular");
   const [dragActive, setDragActive] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
@@ -127,10 +128,19 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
     e.preventDefault();
     if (!description.trim() || !requestedByName.trim()) return;
 
-    await onSubmitRequest(officeName, description, requestedByName.trim(), isEmergency, filePreviews.filter(Boolean));
+    await onSubmitRequest(
+      officeName,
+      description,
+      requestedByName.trim(),
+      isEmergency || severity === "Emergency",
+      filePreviews.filter(Boolean),
+      false,
+      severity
+    );
     setDescription("");
     setRequestedByName("");
     setIsEmergency(false);
+    setSeverity("Regular");
     clearFiles();
     setFormSuccess(true);
     setTimeout(() => {
@@ -427,22 +437,62 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Emergency / Urgent flag */}
-              <div className="flex items-start gap-3 bg-safety-amber/5 border border-safety-amber/20 rounded-lg p-3.5">
-                <input
-                  type="checkbox"
-                  id="deptIsEmergencyCheckbox"
-                  checked={isEmergency}
-                  onChange={(e) => setIsEmergency(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 accent-safety-amber cursor-pointer shrink-0"
-                />
-                <label htmlFor="deptIsEmergencyCheckbox" className="text-sm font-sans cursor-pointer">
-                  <span className="font-semibold text-safety-amber">Emergency / Urgent Safety Issue (Optional) </span>
-                  <span className="block text-slate-700 mt-0.5 leading-relaxed">
-                    Check this only for genuinely urgent, safety-critical situations. It lets the Physical Plant Officer dispatch staff immediately upon approval, skipping School Head and Finance sign-off.
-                  </span>
+              {/* Request Severity Level & Timeline */}
+              <div>
+                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">
+                  Request Severity &amp; SLA Timeline
                 </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["Regular", "Moderate", "Emergency"] as const).map((sev) => {
+                    const isSelected = severity === sev;
+                    return (
+                      <button
+                        key={sev}
+                        type="button"
+                        onClick={() => {
+                          setSeverity(sev);
+                          setIsEmergency(sev === "Emergency");
+                        }}
+                        className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? sev === "Emergency"
+                              ? "bg-red-50 border-red-400 ring-2 ring-red-400"
+                              : sev === "Moderate"
+                              ? "bg-amber-50 border-amber-400 ring-2 ring-amber-400"
+                              : "bg-[#6B1420]/10 border-[#6B1420] ring-2 ring-[#6B1420]"
+                            : "bg-[#F5F1EC] border-[#E6DDD3] hover:bg-[#EFEAE2]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className={`text-xs font-bold font-mono ${
+                            sev === "Emergency" ? "text-red-700" : sev === "Moderate" ? "text-amber-800" : "text-[#6B1420]"
+                          }`}>
+                            {sev === "Emergency" ? "🚨 Emergency" : sev === "Moderate" ? "⚡ Moderate" : "📋 Regular"}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-600 block leading-tight font-sans">
+                          {sev === "Emergency"
+                            ? "Critical hazard (Hours SLA)"
+                            : sev === "Moderate"
+                            ? "Priority issue (Days SLA)"
+                            : "Standard queue"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+
+              {/* Emergency Warning Notice if Emergency is chosen */}
+              {severity === "Emergency" && (
+                <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg p-3.5">
+                  <span className="text-red-600 text-lg shrink-0">🚨</span>
+                  <div className="text-xs font-sans text-red-800 leading-relaxed">
+                    <span className="font-bold block">Urgent Emergency Request</span>
+                    Emergency requests are prioritized for immediate review. PPO, School Directress, and Finance are alerted simultaneously.
+                  </div>
+                </div>
+              )}
 
               {/* Drag & Drop File upload Drop Zone */}
               <div>

@@ -1,8 +1,8 @@
 import React, { useState, useRef } from "react";
-import { ClipboardCheck, Sparkles, Send, User, X, Plus, Building2, Upload, Image as ImageIcon } from "lucide-react";
+import { ClipboardCheck, Sparkles, Send, User, X, Plus, Building2, Upload, Image as ImageIcon, ShieldAlert } from "lucide-react";
 
 interface NewJobOrderButtonProps {
-  onSubmitRequest: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean) => Promise<void>;
+  onSubmitRequest: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean, severity?: string) => Promise<void>;
   isSubmitting: boolean;
   /** If provided, the office field renders as a dropdown of these labels instead of free text. */
   officeOptions?: string[];
@@ -34,6 +34,7 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
   const [description, setDescription] = useState("");
   const [requestedByName, setRequestedByName] = useState(defaultRequestedBy);
   const [isEmergency, setIsEmergency] = useState(false);
+  const [severity, setSeverity] = useState<"Regular" | "Moderate" | "Emergency">("Regular");
   const [requiresFunds, setRequiresFunds] = useState(false);
   const [formSuccess, setFormSuccess] = useState(false);
 
@@ -130,9 +131,10 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
     e.preventDefault();
     if (!office.trim() || !description.trim() || !requestedByName.trim()) return;
 
-    await onSubmitRequest(office.trim(), description, requestedByName.trim(), isEmergency, filePreviews.filter(Boolean), requiresFunds);
+    await onSubmitRequest(office.trim(), description, requestedByName.trim(), isEmergency || severity === "Emergency", filePreviews.filter(Boolean), requiresFunds, severity);
     setDescription("");
     setIsEmergency(false);
+    setSeverity("Regular");
     setRequiresFunds(false);
     clearFiles();
     setFormSuccess(true);
@@ -339,6 +341,46 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Severity Level */}
+              <div>
+                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">
+                  <ShieldAlert className="inline w-3.5 h-3.5 mr-1 text-[#6B1420]" />
+                  Severity Level
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["Regular", "Moderate", "Emergency"] as const).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => {
+                        setSeverity(s);
+                        if (s === "Emergency") setIsEmergency(true);
+                        else if (s !== "Emergency") setIsEmergency(false);
+                      }}
+                      className={`py-2 px-2 rounded-lg border text-xs font-mono font-bold transition-all cursor-pointer
+                        ${
+                          severity === s
+                            ? s === "Emergency"
+                              ? "bg-red-600 text-white border-red-600 shadow"
+                              : s === "Moderate"
+                                ? "bg-amber-500 text-white border-amber-500 shadow"
+                                : "bg-emerald-600 text-white border-emerald-600 shadow"
+                            : "bg-white border-[#E6DDD3] text-slate-600 hover:border-[#6B1420]/40"
+                        }`}
+                    >
+                      {s === "Emergency" ? "🚨 Emergency" : s === "Moderate" ? "⚠️ Moderate" : "🟢 Regular"}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-600 font-sans mt-1.5">
+                  {severity === "Emergency"
+                    ? "🚨 Emergency: resolved within the hour. Staff dispatched immediately on PPO approval."
+                    : severity === "Moderate"
+                      ? "⚠️ Moderate: resolved within 2 business days."
+                      : "🟢 Regular: resolved within 5 business days."}
+                </p>
               </div>
 
               {/* Requires Funds / Materials Purchase flag */}

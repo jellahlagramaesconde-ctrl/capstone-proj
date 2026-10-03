@@ -884,6 +884,37 @@ async function getWorkerTaskLimit(): Promise<number> {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
 }
 
+// ---------------------------------------------------------------
+// SLA DEFAULTS — PPO-configurable hours/days per severity level.
+// Stored in app_settings so any change takes effect immediately for
+// every new job order, without touching code.
+// ---------------------------------------------------------------
+async function getSlaDefaults(): Promise<{ regularDays: number; moderateDays: number; emergencyHours: number }> {
+  const result = await pool.query(
+    "SELECT key, value FROM app_settings WHERE key IN ('sla_regular_days','sla_moderate_days','sla_emergency_hours')"
+  );
+  const map: Record<string, number> = {};
+  for (const row of result.rows) map[row.key] = Number(row.value);
+  return {
+    regularDays:    Number.isFinite(map['sla_regular_days'])    && map['sla_regular_days']    > 0 ? map['sla_regular_days']    : 5,
+    moderateDays:   Number.isFinite(map['sla_moderate_days'])   && map['sla_moderate_days']   > 0 ? map['sla_moderate_days']   : 2,
+    emergencyHours: Number.isFinite(map['sla_emergency_hours']) && map['sla_emergency_hours'] > 0 ? map['sla_emergency_hours'] : 4,
+  };
+}
+
+// Compute the deadline timestamp from a severity and the current SLA defaults.
+function computeDeadline(severity: string, sla: { regularDays: number; moderateDays: number; emergencyHours: number }): Date {
+  const now = new Date();
+  if (severity === 'Emergency') {
+    return new Date(now.getTime() + sla.emergencyHours * 60 * 60 * 1000);
+  }
+  if (severity === 'Moderate') {
+    return new Date(now.getTime() + sla.moderateDays * 24 * 60 * 60 * 1000);
+  }
+  // Regular (default)
+  return new Date(now.getTime() + sla.regularDays * 24 * 60 * 60 * 1000);
+}
+
 // A staff member's real current load: how many OPEN (Pending or In
 // Progress) job orders they're on right now — as lead OR as a team
 // member — via job_order_staff. This is the team-aware replacement for
@@ -1764,13 +1795,15 @@ app.get("/api/logs", authenticateToken, async (req: AuthedRequest, res) => {
 // Submit a new job order with AI (or rule-based) analysis — Dept accounts only
 app.post("/api/job-orders", authenticateToken, requireRole("Dept", "PPO", "President", "Finance"), async (req, res) => {
   try {
-    const { office, description, requestedByName, isEmergency, requiresFunds, photoUrl, photoUrls: photoUrlsInput } = req.body;
+    const { office, description, requestedByName, isEmergency, requiresFunds, photoUrl, photoUrls: photoUrlsInput, severity: severityInput } = req.body;
     if (!description || !office) {
       return res.status(400).json({ error: "Office and Description are required fields." });
     }
     if (!requestedByName || !requestedByName.trim()) {
       return res.status(400).json({ error: "Please enter the full name of the department head making this request." });
     }
+    const VALID_SEVERITIES = ['Regular', 'Moderate', 'Emergency'];
+    const severity: string = VALID_SEVERITIES.includes(severityInput) ? severityInput : (isEmergency ? 'Emergency' : 'Regular');
 
     // Accept either the new `photoUrls` array or the legacy single
     // `photoUrl` field (still sent by any client that hasn't been updated
@@ -1910,10 +1943,15 @@ app.post("/api/job-orders", authenticateToken, requireRole("Dept", "PPO", "Presi
 
     const ticketIdResult = await pool.query("SELECT nextval('job_orders_id_seq') as next_id");
     const ticketId = `JO-${new Date().getFullYear()}-0${ticketIdResult.rows[0].next_id}`;
+
+    // Compute deadline from severity + current SLA defaults
+    const sla = await getSlaDefaults();
+    const deadline = computeDeadline(severity, sla);
+
     const insertResult = await pool.query(
       `INSERT INTO job_orders
-        (id, office, description, job_type, safety_risk, operational_impact, urgency, people_affected, resource_cost, priority_score, status, assigned_staff, assigned_staff_id, match_score, notes, requested_by_name, is_emergency, requires_funds, photo_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Pending',$11,$12,$13,$14,$15,$16,$17,$18)
+        (id, office, description, job_type, safety_risk, operational_impact, urgency, people_affected, resource_cost, priority_score, status, assigned_staff, assigned_staff_id, match_score, notes, requested_by_name, is_emergency, requires_funds, photo_url, severity, deadline)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Pending',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING *`,
       [
         ticketId,
@@ -1931,9 +1969,11 @@ app.post("/api/job-orders", authenticateToken, requireRole("Dept", "PPO", "Presi
         parsedResult.matchScore,
         parsedResult.explanation,
         requestedByName.trim(),
-        Boolean(isEmergency),
+        Boolean(isEmergency) || severity === 'Emergency',
         Boolean(requiresFunds),
         photoUrls[0] || null,
+        severity,
+        deadline,
       ]
     );
     const newTicket = mapJobOrderRow(insertResult.rows[0]) as ReturnType<typeof mapJobOrderRow> & { photoUrls: string[] };
@@ -2160,6 +2200,113 @@ app.post("/api/settings/worker-limit", authenticateToken, requireRole("PPO"), as
     res.json({ workerTaskLimit: Math.round(parsed) });
   } catch (err: any) {
     console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------
+// SLA SETTINGS — PPO reads and updates the default hours/days per
+// severity level. Stored in app_settings, same pattern as worker-limit.
+// ---------------------------------------------------------------
+app.get("/api/settings/sla", authenticateToken, async (req, res) => {
+  try {
+    const sla = await getSlaDefaults();
+    res.json(sla);
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const handleSlaSettingsUpdate = async (req: AuthedRequest, res: any) => {
+  try {
+    const { regularDays, moderateDays, emergencyHours } = req.body;
+    const rd = Number(regularDays);
+    const md = Number(moderateDays);
+    const eh = Number(emergencyHours);
+    if (!Number.isFinite(rd) || rd < 1) return res.status(400).json({ error: "Regular SLA must be at least 1 day." });
+    if (!Number.isFinite(md) || md < 1) return res.status(400).json({ error: "Moderate SLA must be at least 1 day." });
+    if (!Number.isFinite(eh) || eh < 1) return res.status(400).json({ error: "Emergency SLA must be at least 1 hour." });
+
+    const upsert = `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+                    ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`;
+    await pool.query(upsert, ['sla_regular_days',    String(Math.round(rd))]);
+    await pool.query(upsert, ['sla_moderate_days',   String(Math.round(md))]);
+    await pool.query(upsert, ['sla_emergency_hours', String(Math.round(eh))]);
+    await pool.query("INSERT INTO logs (message) VALUES ($1)", [
+      `SLA defaults updated by PPO (${req.user?.username}): Regular=${Math.round(rd)}d, Moderate=${Math.round(md)}d, Emergency=${Math.round(eh)}h.`,
+    ]);
+    res.json({ regularDays: Math.round(rd), moderateDays: Math.round(md), emergencyHours: Math.round(eh) });
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+app.post("/api/settings/sla", authenticateToken, requireRole("PPO"), handleSlaSettingsUpdate);
+app.patch("/api/settings/sla", authenticateToken, requireRole("PPO"), handleSlaSettingsUpdate);
+
+// ---------------------------------------------------------------
+// EXTEND DEADLINE — PPO only. Adds hours or days to the current
+// deadline of any job order and records the extension in the audit log.
+// Supports both relative extension (hours/days) or target timestamp (newDeadline).
+// ---------------------------------------------------------------
+app.patch("/api/job-orders/:id/extend-deadline", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
+  try {
+    const ticketId = req.params.id;
+    const { extensionHours, extensionDays, newDeadline: targetDeadline, reason } = req.body;
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({ error: "A reason is required when extending the deadline." });
+    }
+
+    const existing = await pool.query("SELECT deadline FROM job_orders WHERE id = $1", [ticketId]);
+    if (existing.rows.length === 0) return res.status(404).json({ error: "Job order not found." });
+
+    const currentDeadline = existing.rows[0].deadline ? new Date(existing.rows[0].deadline) : new Date();
+    let newDeadline: Date;
+
+    if (targetDeadline) {
+      newDeadline = new Date(targetDeadline);
+      if (isNaN(newDeadline.getTime())) {
+        return res.status(400).json({ error: "Invalid target deadline timestamp." });
+      }
+    } else {
+      const totalHours = (Number(extensionHours) || 0) + (Number(extensionDays) || 0) * 24;
+      if (totalHours <= 0) {
+        return res.status(400).json({ error: "Extension must be at least 1 hour or 1 day." });
+      }
+      newDeadline = new Date(currentDeadline.getTime() + totalHours * 60 * 60 * 1000);
+    }
+
+    const updateResult = await pool.query(
+      `UPDATE job_orders
+         SET deadline = $1,
+             deadline_extended_at = NOW(),
+             deadline_extended_by_user_id = $2,
+             deadline_extension_reason = $3
+       WHERE id = $4 RETURNING *`,
+      [newDeadline, req.user!.sub, String(reason).trim(), ticketId]
+    );
+    const ticket = mapJobOrderRow(updateResult.rows[0]);
+
+    await pool.query(
+      `INSERT INTO approval_audit_log (job_order_id, actor_user_id, action, previous_value, new_value, reason)
+       VALUES ($1, $2, 'DEADLINE_EXTENDED', $3, $4, $5)`,
+      [ticketId, req.user!.sub, currentDeadline.toISOString(), newDeadline.toISOString(), String(reason).trim()]
+    );
+    await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
+      `n_${Date.now()}_dl_ext`,
+      `Deadline for ${ticketId} extended by PPO (${req.user?.fullName || req.user?.username}) by ${totalHours}h. Reason: ${String(reason).trim()}`,
+      ticketId,
+    ]);
+    await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
+      `Deadline for ${ticketId} extended to ${newDeadline.toISOString()} by PPO (${req.user?.username}). Reason: ${String(reason).trim()}`,
+      ticketId,
+    ]);
+
+    res.json({ ok: true, ticket });
+  } catch (err: any) {
+    console.error("Error extending deadline:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2792,6 +2939,26 @@ async function applySchemaMigrations() {
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS emergency_bypassed BOOLEAN DEFAULT FALSE");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS requires_funds BOOLEAN DEFAULT FALSE");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS completion_remarks TEXT");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS severity VARCHAR(20) NOT NULL DEFAULT 'Regular'");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline TIMESTAMP");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extended_at TIMESTAMP");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extended_by_user_id INT REFERENCES users(id)");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extension_reason TEXT");
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      INSERT INTO app_settings (key, value) VALUES
+        ('sla_regular_days', '5'),
+        ('sla_moderate_days', '2'),
+        ('sla_emergency_hours', '4')
+      ON CONFLICT (key) DO NOTHING
+    `);
 
     // ── STEP 2: Run the full schema (creates tables + indexes safely) ───────
     const schemaPath = new URL("./schema.sql", import.meta.url);

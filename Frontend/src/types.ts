@@ -43,6 +43,11 @@ export interface JobOrder {
   // for PPO/Finance/President (Dept/Staff never receive these fields).
   budgetItems?: BudgetItem[];
   budgetItemsTotal?: number;
+  // Severity & SLA deadline
+  severity?: 'Regular' | 'Moderate' | 'Emergency';
+  deadline?: string;                  // ISO timestamp
+  deadlineExtendedAt?: string;        // ISO timestamp of last extension
+  deadlineExtensionReason?: string;   // Reason given by PPO when extending
 }
 
 export interface Staff {

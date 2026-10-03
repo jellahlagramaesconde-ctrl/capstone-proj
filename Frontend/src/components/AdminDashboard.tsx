@@ -6,7 +6,7 @@ import { NewJobOrderButton } from "./NewJobOrderButton";
 import { AccountManagementModal, UserAccount } from "./AccountManagementModal";
 import { formatPeso, sumJobOrderCosts } from "../priceUtils";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { RefreshCw, Download, Sliders, Users, FileText, CheckCircle, ChevronDown, Check, GraduationCap, Inbox, Clock, Wallet, UserCheck } from "lucide-react";
+import { RefreshCw, Download, Sliders, Users, FileText, CheckCircle, ChevronDown, Check, GraduationCap, Inbox, Clock, Wallet, UserCheck, AlertTriangle } from "lucide-react";
 
 interface AdminDashboardProps {
   tickets: JobOrder[];
@@ -24,6 +24,7 @@ interface AdminDashboardProps {
   onFinanceApprove: (id: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
   onPpoBypassPresident?: (id: string, reason: string) => Promise<void>;
   onSaveBudgetItems?: (ticketId: string, items: { qty: number; unit?: string; description: string; unitCost: number }[]) => Promise<void>;
+  onExtendDeadline?: (ticketId: string, params: { extensionHours?: number; extensionDays?: number; newDeadline?: string; reason: string }) => Promise<{ ok: boolean; error?: string } | void>;
   onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean) => Promise<void>;
   isSubmitting?: boolean;
   officeOptions?: string[];
@@ -55,6 +56,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onFinanceApprove,
   onPpoBypassPresident,
   onSaveBudgetItems,
+  onExtendDeadline,
   onSubmitRequest,
   isSubmitting = false,
   officeOptions,
@@ -152,6 +154,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       name: name.replace("Office", "Off.").replace("Laboratory", "Lab"),
       count,
     }));
+  }, [tickets]);
+
+  // Recurring Issues: group unresolved tickets by office + jobType.
+  // Any group with 3+ open tickets is flagged as a systemic/recurring problem.
+  const recurringIssues = useMemo(() => {
+    const groups: Record<string, { office: string; jobType: string; count: number; tickets: JobOrder[] }> = {};
+    tickets
+      .filter((t) => t.status !== "Completed")
+      .forEach((t) => {
+        const key = `${t.office}||${t.jobType}`;
+        if (!groups[key]) {
+          groups[key] = { office: t.office, jobType: t.jobType, count: 0, tickets: [] };
+        }
+        groups[key].count += 1;
+        groups[key].tickets.push(t);
+      });
+    return Object.values(groups)
+      .filter((g) => g.count >= 3)
+      .sort((a, b) => b.count - a.count); // worst first
   }, [tickets]);
 
   const handleOpenOverride = (ticket: JobOrder) => {
@@ -557,6 +578,72 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Right Column: Roster & Logs & Reports (4 cols) */}
         <div className="lg:col-span-4 space-y-6 sm:space-y-8">
 
+          {/* ══ Recurring Problems Alert Panel ══ */}
+          {recurringIssues.length > 0 && (
+            <div className="bg-white border-2 border-red-300 rounded-lg p-4 sm:p-5 shadow-sm">
+              {/* Header */}
+              <div className="flex items-center gap-2 mb-3 pb-3 border-b border-red-100">
+                <div className="w-7 h-7 rounded bg-red-100 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4 text-red-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-display font-bold text-sm text-red-700">
+                    🔁 Recurring Problems Detected
+                  </h3>
+                  <p className="text-[10px] text-slate-500 font-sans">
+                    {recurringIssues.length} issue type{recurringIssues.length !== 1 ? "s" : ""} with 3+ unresolved requests
+                  </p>
+                </div>
+                <span className="text-lg font-mono font-bold text-red-600 bg-red-50 border border-red-200 rounded px-2 py-0.5">
+                  {recurringIssues.length}
+                </span>
+              </div>
+
+              {/* Issue rows */}
+              <div className="space-y-2.5">
+                {recurringIssues.map((g) => (
+                  <div
+                    key={`${g.office}||${g.jobType}`}
+                    className="flex items-start gap-2.5 p-2.5 bg-red-50/60 border border-red-100 rounded-lg"
+                  >
+                    {/* Count badge */}
+                    <div className="w-8 h-8 rounded bg-red-500 text-white font-mono font-bold text-sm flex items-center justify-center shrink-0">
+                      {g.count}x
+                    </div>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-[#241012] font-sans truncate">{g.office}</p>
+                      <p className="text-[11px] text-slate-500 font-mono uppercase">{g.jobType}</p>
+                      <p className="text-[10px] text-red-600 font-sans mt-0.5">
+                        Oldest open:{" "}
+                        {new Date(
+                          Math.min(...g.tickets.map((t) => new Date(t.dateSubmitted).getTime()))
+                        ).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                    </div>
+                    {/* Severity pill */}
+                    <span
+                      className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap self-center ${
+                        g.count >= 5
+                          ? "bg-red-600 text-white"
+                          : g.count >= 4
+                          ? "bg-orange-500 text-white"
+                          : "bg-amber-400 text-amber-900"
+                      }`}
+                    >
+                      {g.count >= 5 ? "CRITICAL" : g.count >= 4 ? "HIGH" : "MODERATE"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Footer note */}
+              <p className="text-[10px] text-slate-400 font-sans mt-3 pt-2 border-t border-red-100 leading-relaxed">
+                ⚠️ Recurring problems may indicate a systemic issue. Consider a permanent repair or escalation.
+              </p>
+            </div>
+          )}
+
           {/* Staff Roster Panel */}
           <div className="bg-white border border-[#E6DDD3] rounded-lg p-4 sm:p-6 shadow-sm">
             <h3 className="font-display font-semibold text-base text-[#241012] flex items-center gap-2 mb-4 pb-3 border-b border-[#E6DDD3]">
@@ -773,6 +860,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           setTimeout(() => setToastMessage(null), 3000);
         }}
         onSaveBudgetItems={onSaveBudgetItems}
+        onExtendDeadline={onExtendDeadline}
         onOverride={(id) => {
           if (selectedTicket) {
             handleOpenOverride(selectedTicket);

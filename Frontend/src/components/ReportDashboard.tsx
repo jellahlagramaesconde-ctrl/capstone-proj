@@ -139,6 +139,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
     ppo_bypass_president: { label: "PPO Bypass",          color: "bg-amber-100 text-amber-800 border-amber-200" },
     finance_approve:      { label: "Finance Approved",    color: "bg-violet-100 text-violet-800 border-violet-200" },
     staff_completed:      { label: "Completed",           color: "bg-slate-100 text-slate-700 border-slate-200" },
+    DEADLINE_EXTENDED:    { label: "Deadline Extended",   color: "bg-orange-100 text-orange-800 border-orange-200" },
   };
 
   const auditActions = ["All", ...Object.keys(actionMeta)];

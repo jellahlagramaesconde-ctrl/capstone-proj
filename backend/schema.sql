@@ -32,6 +32,11 @@ INSERT INTO app_settings (key, value)
 VALUES ('worker_task_limit', '4')
 ON CONFLICT (key) DO NOTHING;
 
+-- SLA deadline defaults (PPO-configurable via Settings)
+INSERT INTO app_settings (key, value) VALUES ('sla_regular_days',  '5') ON CONFLICT (key) DO NOTHING;
+INSERT INTO app_settings (key, value) VALUES ('sla_moderate_days', '2') ON CONFLICT (key) DO NOTHING;
+INSERT INTO app_settings (key, value) VALUES ('sla_emergency_hours','4') ON CONFLICT (key) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS departments (
     id         SERIAL PRIMARY KEY,
     value      VARCHAR(50),
@@ -249,10 +254,25 @@ CREATE TABLE IF NOT EXISTS job_orders (
     requested_by_user_id INT REFERENCES users(id),
     requested_by_name    VARCHAR(150),
 
-    photo_url        TEXT
+    photo_url        TEXT,
+
+    -- Severity level chosen at submission time
+    severity             VARCHAR(20) NOT NULL DEFAULT 'Regular'
+                         CHECK (severity IN ('Regular','Moderate','Emergency')),
+    -- Computed deadline based on severity SLA (set on INSERT, extendable by PPO)
+    deadline             TIMESTAMP,
+    -- Extension audit trail
+    deadline_extended_at          TIMESTAMP,
+    deadline_extended_by_user_id  INT REFERENCES users(id),
+    deadline_extension_reason     TEXT
 );
 
 ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS photo_url TEXT;
+ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS severity VARCHAR(20) NOT NULL DEFAULT 'Regular';
+ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline TIMESTAMP;
+ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extended_at TIMESTAMP;
+ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extended_by_user_id INT REFERENCES users(id);
+ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extension_reason TEXT;
 
 CREATE TABLE IF NOT EXISTS job_order_photos (
     id           SERIAL PRIMARY KEY,

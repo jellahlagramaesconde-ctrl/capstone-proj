@@ -2,6 +2,7 @@ import React from "react";
 import { JobOrder } from "../types";
 import { getJobOrderCost, formatPeso, getJobOrderCostDisplay } from "../priceUtils";
 import { AlertTriangle, CheckCircle, ShieldAlert, User, Users, ArrowRight, RefreshCw, Star } from "lucide-react";
+import { DeadlineBadge } from "./DeadlineBadge";
 
 interface TicketStubProps {
   ticket: JobOrder;
@@ -69,6 +70,16 @@ export const TicketStub: React.FC<TicketStubProps> = ({
                 🚨 EMERGENCY
               </span>
             )}
+          </div>
+
+          {/* Deadline / Severity badge */}
+          <div className="mt-1.5">
+            <DeadlineBadge
+              severity={ticket.severity}
+              deadline={ticket.deadline}
+              isCompleted={isCompleted}
+              compact
+            />
           </div>
 
           {/* Office Name */}

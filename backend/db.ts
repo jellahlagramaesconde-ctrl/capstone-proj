@@ -5,7 +5,7 @@ dotenv.config();
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === "production"
+  ssl: process.env.NODE_ENV === "production" || (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("localhost") && !process.env.DATABASE_URL.includes("127.0.0.1"))
     ? { rejectUnauthorized: false }
     : false,
 });
@@ -53,6 +53,11 @@ export function mapJobOrderRow(row: any) {
     approvedAmount: row.approved_amount !== null && row.approved_amount !== undefined ? Number(row.approved_amount) : undefined,
     financeNotes: row.finance_notes ?? undefined,
     completionRemarks: row.completion_remarks ?? undefined,
+    // Severity & deadline
+    severity: (row.severity as 'Regular' | 'Moderate' | 'Emergency') ?? 'Regular',
+    deadline: row.deadline ? new Date(row.deadline).toISOString() : undefined,
+    deadlineExtendedAt: row.deadline_extended_at ? new Date(row.deadline_extended_at).toISOString() : undefined,
+    deadlineExtensionReason: row.deadline_extension_reason ?? undefined,
   };
 }
 
