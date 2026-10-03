@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { ClipboardCheck, Sparkles, Send, User, X, Plus, Building2, Upload, Image as ImageIcon, ShieldAlert } from "lucide-react";
+import { ClipboardCheck, Sparkles, Send, User, X, Plus, Building2, Upload, Image as ImageIcon, ShieldAlert, ArrowRight, Check, FileText } from "lucide-react";
 
 interface NewJobOrderButtonProps {
   onSubmitRequest: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean, severity?: string) => Promise<void>;
@@ -156,293 +156,371 @@ export const NewJobOrderButton: React.FC<NewJobOrderButtonProps> = ({
       </button>
 
       {isFormOpen && (
-        <div className="fixed inset-0 bg-[#1A0E10]/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-[#E6DDD3] rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white flex items-center justify-between p-4 sm:p-6 pb-3 border-b border-[#E6DDD3]">
-              <h3 className="font-display font-semibold text-base text-[#241012] flex items-center gap-2">
-                <ClipboardCheck className="w-5 h-5 text-cyan-accent" /> Submit a Job Order
-              </h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#FAF7F5] border border-[#E6DDD3] rounded-2xl sm:rounded-3xl shadow-2xl max-w-xl w-full max-h-[92vh] overflow-y-auto overflow-x-hidden">
+            
+            {/* Crimson Header Banner */}
+            <div className="sticky top-0 z-10 bg-[#7C1D2D] text-white px-5 sm:px-6 py-4 flex items-center justify-between shadow-md">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center text-white shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-[10px] sm:text-[11px] font-mono tracking-widest uppercase text-white/75 leading-none">
+                    JORS · COSCA
+                  </p>
+                  <h3 className="text-base sm:text-lg font-bold text-white tracking-tight mt-0.5">
+                    Job order request
+                  </h3>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsFormOpen(false)}
-                className="p-1 rounded text-slate-600 hover:text-[#241012] hover:bg-[#F0EAE4] transition-colors cursor-pointer"
+                className="p-1.5 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Close modal"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5 p-4 sm:p-6 pt-4">
+            <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-6">
 
-              {/* Requesting Office — dropdown when options are known, free text otherwise */}
+              {/* Step 1: Requester */}
               <div>
-                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">Requesting Office</label>
-                <div className="relative">
-                  {officeOptions && officeOptions.length > 0 ? (
-                    <select
-                      value={office}
-                      onChange={(e) => setOffice(e.target.value)}
-                      required
-                      className="w-full bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg pl-9 pr-3 py-3 text-sm text-[#2B1210] focus:outline-none focus:border-cyan-accent font-sans appearance-none cursor-pointer"
-                    >
-                      <option value="" disabled>Select an office...</option>
-                      {officeOptions.map((o) => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      value={office}
-                      onChange={(e) => setOffice(e.target.value)}
-                      required
-                      placeholder="e.g. Physical Plant Office (PPO)"
-                      className="w-full bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg pl-9 pr-3 py-3 text-sm text-[#2B1210] focus:outline-none focus:border-cyan-accent placeholder-slate-500 font-sans"
-                    />
-                  )}
-                  <Building2 className="w-4 h-4 text-slate-600 absolute left-3 top-3.5 pointer-events-none" />
+                <div className="flex items-center gap-2.5 mb-3">
+                  <div className="w-6 h-6 rounded-full bg-[#7C1D2D] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                    1
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-[#1A0E10] text-sm leading-tight">Requester</h4>
+                    <p className="text-[11px] text-slate-500">Para kanino ang request?</p>
+                  </div>
                 </div>
-                <span className="text-sm text-slate-600 font-sans mt-1.5 block">
-                  Select which office this job order is being raised on behalf of.
-                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {/* Requesting Office */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Requesting office *</label>
+                    <div className="relative">
+                      {officeOptions && officeOptions.length > 0 ? (
+                        <select
+                          value={office}
+                          onChange={(e) => setOffice(e.target.value)}
+                          required
+                          className="w-full bg-white border border-[#DDD2C8] focus:border-[#7C1D2D] focus:ring-2 focus:ring-[#7C1D2D]/20 rounded-xl pl-9 pr-3 py-2.5 text-sm text-[#2B1210] outline-none font-sans appearance-none cursor-pointer shadow-2xs"
+                        >
+                          <option value="" disabled>Select an office...</option>
+                          {officeOptions.map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={office}
+                          onChange={(e) => setOffice(e.target.value)}
+                          required
+                          placeholder="Library"
+                          className="w-full bg-white border border-[#DDD2C8] focus:border-[#7C1D2D] focus:ring-2 focus:ring-[#7C1D2D]/20 rounded-xl pl-9 pr-3 py-2.5 text-sm text-[#2B1210] outline-none placeholder-slate-400 font-sans shadow-2xs"
+                        />
+                      )}
+                      <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  {/* Requested By */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Requested by *</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={requestedByName}
+                        onChange={(e) => setRequestedByName(e.target.value)}
+                        required
+                        placeholder="Prof. Jellah Esconde"
+                        className="w-full bg-white border border-[#DDD2C8] focus:border-[#7C1D2D] focus:ring-2 focus:ring-[#7C1D2D]/20 rounded-xl pl-9 pr-3 py-2.5 text-sm text-[#2B1210] outline-none placeholder-slate-400 font-sans shadow-2xs"
+                      />
+                      <User className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Requested By */}
+              {/* Step 2: What needs fixing? */}
               <div>
-                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">Requested By</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={requestedByName}
-                    onChange={(e) => setRequestedByName(e.target.value)}
+                <div className="flex items-center gap-2.5 mb-3">
+                  <div className="w-6 h-6 rounded-full bg-[#7C1D2D] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                    2
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-[#1A0E10] text-sm leading-tight">What needs fixing?</h4>
+                    <p className="text-[11px] text-slate-500">Isama ang location at safety concerns.</p>
+                  </div>
+                </div>
+
+                <div>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
                     required
-                    placeholder="Full name, e.g. Prof. Jellah Esconde"
-                    className="w-full bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg pl-9 pr-3 py-3 text-sm text-[#2B1210] focus:outline-none focus:border-cyan-accent placeholder-slate-500 font-sans"
+                    rows={3}
+                    maxLength={500}
+                    placeholder="Humming ang fluorescent bulb malapit sa desk 3..."
+                    className="w-full bg-white border border-[#DDD2C8] focus:border-[#7C1D2D] focus:ring-2 focus:ring-[#7C1D2D]/20 rounded-xl p-3.5 text-sm text-[#2B1210] outline-none resize-none placeholder-slate-400 font-sans leading-relaxed shadow-2xs"
                   />
-                  <User className="w-4 h-4 text-slate-600 absolute left-3 top-3.5" />
+                  <div className="flex justify-between items-center text-[11px] text-slate-500 font-sans mt-0.5">
+                    <span></span>
+                    <span className="font-mono text-slate-500">{description.length}/500</span>
+                  </div>
                 </div>
-                <span className="text-sm text-slate-600 font-sans mt-1.5 block">
-                  Enter the full name of the person authorizing this request, for the PPO's records.
-                </span>
-              </div>
 
-              {/* Description */}
-              <div>
-                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">Issue Description</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  required
-                  rows={4}
-                  placeholder="Describe the issue in plain language. e.g. Fluorescent bulb is humming near desk 3, or major leak in the server room cooling tower..."
-                  className="w-full bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg p-3 text-sm text-[#2B1210] focus:outline-none focus:border-cyan-accent resize-none placeholder-slate-500 font-sans leading-relaxed"
-                />
-                <div className="flex justify-between items-center text-sm text-slate-600 font-sans mt-1">
-                  <span>Please be specific about location and safety indicators.</span>
-                  <span className="text-[#6B1420] flex items-center gap-1 font-mono font-bold">
-                    <Sparkles className="w-3 h-3 text-cyan-accent" />
-                    {aiEnabled ? "AI Triage Active" : "Rule-Based Triage"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Drag & Drop File upload Drop Zone */}
-              <div>
-                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">
-                  Attach Photos (Optional, up to {MAX_PHOTOS})
-                </label>
-
-                <div
-                  onDragEnter={handleDrag}
-                  onDragOver={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDrop={handleDrop}
-                  onClick={() => attachedFiles.length < MAX_PHOTOS && triggerFileInput()}
-                  className={`border-2 border-dashed rounded-lg p-5 flex flex-col items-center justify-center transition-all ${attachedFiles.length >= MAX_PHOTOS ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${dragActive
-                    ? "border-[#8C2331] bg-[#8C2331]/5"
-                    : attachedFiles.length > 0
-                      ? "border-soft-green bg-soft-green/5"
-                      : "border-[#DDD2C8] hover:border-cyan-accent bg-[#F5F1EC]"
+                {/* Drag & drop upload */}
+                <div className="mt-2.5">
+                  <div
+                    onDragEnter={handleDrag}
+                    onDragOver={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDrop={handleDrop}
+                    onClick={() => attachedFiles.length < MAX_PHOTOS && triggerFileInput()}
+                    className={`border-2 border-dashed rounded-xl p-4 sm:p-5 flex flex-col items-center justify-center transition-all bg-white shadow-2xs ${
+                      attachedFiles.length >= MAX_PHOTOS ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                    } ${
+                      dragActive
+                        ? "border-[#7C1D2D] bg-[#7C1D2D]/5"
+                        : attachedFiles.length > 0
+                        ? "border-emerald-500 bg-emerald-50/20"
+                        : "border-[#D6CCC2] hover:border-[#7C1D2D]"
                     }`}
-                >
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                  />
+                  >
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                    />
 
-                  {attachedFiles.length > 0 ? (
-                    <div className="w-full">
-                      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                        {attachedFiles.map((file, i) => (
-                          <div key={i} className="relative group">
-                            {filePreviews[i] ? (
-                              <img
-                                src={filePreviews[i]}
-                                alt={`Attached preview ${i + 1}`}
-                                className="w-full aspect-square object-cover rounded border border-[#E6DDD3] animate-fade-in"
-                              />
-                            ) : (
-                              <div className="w-full aspect-square flex items-center justify-center bg-white rounded border border-[#E6DDD3]">
-                                <ImageIcon className="w-6 h-6 text-slate-400" />
-                              </div>
-                            )}
+                    {attachedFiles.length > 0 ? (
+                      <div className="w-full">
+                        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                          {attachedFiles.map((file, i) => (
+                            <div key={i} className="relative group">
+                              {filePreviews[i] ? (
+                                <img
+                                  src={filePreviews[i]}
+                                  alt={`Attached preview ${i + 1}`}
+                                  className="w-full aspect-square object-cover rounded-lg border border-[#E6DDD3] shadow-xs"
+                                />
+                              ) : (
+                                <div className="w-full aspect-square flex items-center justify-center bg-white rounded-lg border border-[#E6DDD3]">
+                                  <ImageIcon className="w-5 h-5 text-slate-400" />
+                                </div>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeFileAt(i);
+                                }}
+                                title={`Remove ${file.name}`}
+                                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center text-xs font-bold shadow-xs hover:bg-rose-700 transition-colors"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                          {attachedFiles.length < MAX_PHOTOS && (
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                removeFileAt(i);
+                                triggerFileInput();
                               }}
-                              title={`Remove ${file.name}`}
-                              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-soft-red text-white flex items-center justify-center text-xs font-bold shadow-sm opacity-90 hover:opacity-100"
+                              className="w-full aspect-square flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#DDD2C8] hover:border-[#7C1D2D] text-slate-400 hover:text-[#7C1D2D] transition-colors"
                             >
-                              <X className="w-3 h-3" />
+                              <Plus className="w-5 h-5" />
                             </button>
-                          </div>
-                        ))}
-                        {attachedFiles.length < MAX_PHOTOS && (
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-[#F0EAE4]">
+                          <span className="text-[11px] text-slate-500">
+                            {attachedFiles.length} of {MAX_PHOTOS} photo{attachedFiles.length === 1 ? "" : "s"} attached
+                          </span>
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              triggerFileInput();
+                              clearFiles();
                             }}
-                            className="w-full aspect-square flex flex-col items-center justify-center rounded border-2 border-dashed border-[#DDD2C8] hover:border-cyan-accent text-slate-500 hover:text-cyan-accent transition-colors"
+                            className="text-[11px] font-mono text-rose-600 hover:underline uppercase font-bold"
                           >
-                            <Plus className="w-5 h-5" />
+                            Clear All
                           </button>
-                        )}
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-600 mt-2 text-center">
-                        {attachedFiles.length} of {MAX_PHOTOS} photo{attachedFiles.length === 1 ? "" : "s"} attached
-                      </p>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          clearFiles();
-                        }}
-                        className="text-xs font-mono text-soft-red hover:underline mt-1.5 uppercase font-bold block mx-auto"
-                      >
-                        Clear All
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <Upload className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                      <p className="text-xs text-slate-600 font-semibold">
-                        Drag & Drop Photos Here
-                      </p>
-                      <p className="text-sm text-slate-600 mt-1 font-sans">
-                        or click to manually browse system files
-                      </p>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="text-center py-1">
+                        <Upload className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                        <p className="text-xs sm:text-sm font-semibold text-[#1A0E10]">
+                          I-drag ang photos, o mag-click para mag-browse
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Optional, hanggang 5 photos
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Severity Level */}
+              {/* Step 3: Request type */}
               <div>
-                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">
-                  <ShieldAlert className="inline w-3.5 h-3.5 mr-1 text-[#6B1420]" />
-                  Severity Level
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["Regular", "Moderate", "Emergency"] as const).map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => {
-                        setSeverity(s);
-                        if (s === "Emergency") setIsEmergency(true);
-                        else if (s !== "Emergency") setIsEmergency(false);
-                      }}
-                      className={`py-2 px-2 rounded-lg border text-xs font-mono font-bold transition-all cursor-pointer
-                        ${
-                          severity === s
-                            ? s === "Emergency"
-                              ? "bg-red-600 text-white border-red-600 shadow"
-                              : s === "Moderate"
-                                ? "bg-amber-500 text-white border-amber-500 shadow"
-                                : "bg-emerald-600 text-white border-emerald-600 shadow"
-                            : "bg-white border-[#E6DDD3] text-slate-600 hover:border-[#6B1420]/40"
-                        }`}
-                    >
-                      {s === "Emergency" ? "🚨 Emergency" : s === "Moderate" ? "⚠️ Moderate" : "🟢 Regular"}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2.5 mb-3">
+                  <div className="w-6 h-6 rounded-full bg-[#7C1D2D] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                    3
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-[#1A0E10] text-sm leading-tight">Request type</h4>
+                    <p className="text-[11px] text-slate-500">Iwanang off pareho kung routine repair.</p>
+                  </div>
                 </div>
-                <p className="text-xs text-slate-600 font-sans mt-1.5">
-                  {severity === "Emergency"
-                    ? "🚨 Emergency: resolved within the hour. Staff dispatched immediately on PPO approval."
-                    : severity === "Moderate"
-                      ? "⚠️ Moderate: resolved within 2 business days."
-                      : "🟢 Regular: resolved within 5 business days."}
-                </p>
+
+                {/* 2 Interactive Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Needs funds / materials Card */}
+                  <div
+                    onClick={() => setRequiresFunds(!requiresFunds)}
+                    className={`bg-white border rounded-xl p-3.5 cursor-pointer transition-all flex items-start gap-3 shadow-2xs ${
+                      requiresFunds
+                        ? "border-[#7C1D2D] ring-2 ring-[#7C1D2D]/15 bg-[#7C1D2D]/[0.02]"
+                        : "border-[#DDD2C8] hover:border-[#7C1D2D]/40"
+                    }`}
+                  >
+                    <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                      requiresFunds ? "bg-[#7C1D2D] border-[#7C1D2D] text-white" : "border-slate-300 bg-white"
+                    }`}>
+                      {requiresFunds && <Check className="w-3 h-3 stroke-[3]" />}
+                    </div>
+                    <div>
+                      <span className="font-semibold text-xs sm:text-sm text-[#1A0E10] block leading-tight">
+                        Needs funds / materials
+                      </span>
+                      <span className="text-[11px] text-slate-500 block mt-1 leading-snug">
+                        Kailangan ng President endorsement at Finance approval.
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Emergency / urgent Card */}
+                  <div
+                    onClick={() => {
+                      const next = !isEmergency;
+                      setIsEmergency(next);
+                      setSeverity(next ? "Emergency" : "Regular");
+                    }}
+                    className={`bg-white border rounded-xl p-3.5 cursor-pointer transition-all flex items-start gap-3 shadow-2xs ${
+                      isEmergency
+                        ? "border-red-500 ring-2 ring-red-500/15 bg-red-50/20"
+                        : "border-[#DDD2C8] hover:border-red-400/40"
+                    }`}
+                  >
+                    <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                      isEmergency ? "bg-red-600 border-red-600 text-white" : "border-slate-300 bg-white"
+                    }`}>
+                      {isEmergency && <Check className="w-3 h-3 stroke-[3]" />}
+                    </div>
+                    <div>
+                      <span className="font-semibold text-xs sm:text-sm text-[#1A0E10] block leading-tight">
+                        Emergency / urgent
+                      </span>
+                      <span className="text-[11px] text-slate-500 block mt-1 leading-snug">
+                        Para lang sa safety-critical. PPO approval lang ang kailangan.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dynamic Approval Route Triage Visualizer */}
+                <div className="bg-white border border-[#E8DFD8] rounded-xl p-3 sm:p-3.5 mt-3 shadow-2xs">
+                  <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-mono tracking-wider uppercase text-slate-500 font-semibold mb-2">
+                    <Sparkles className="w-3 h-3 text-[#7C1D2D]" />
+                    <span>APPROVAL ROUTE · {aiEnabled ? "AI-ASSISTED TRIAGE" : "RULE-BASED TRIAGE"}</span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    <span className="px-2.5 py-1 rounded-md bg-[#7C1D2D] text-white text-[11px] font-semibold tracking-wide shadow-2xs">
+                      Submit
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+
+                    {isEmergency ? (
+                      <span className="px-2.5 py-1 rounded-md bg-red-600 text-white text-[11px] font-semibold tracking-wide shadow-2xs animate-pulse">
+                        🚨 Immediate PPO Dispatch
+                      </span>
+                    ) : requiresFunds ? (
+                      <>
+                        <span className="px-2.5 py-1 rounded-md bg-[#F2EDE8] text-[#241012] border border-[#DDD2C8] text-[11px] font-medium">
+                          PPO review
+                        </span>
+                        <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="px-2.5 py-1 rounded-md bg-[#F2EDE8] text-[#241012] border border-[#DDD2C8] text-[11px] font-medium">
+                          President review
+                        </span>
+                        <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="px-2.5 py-1 rounded-md bg-[#F2EDE8] text-[#241012] border border-[#DDD2C8] text-[11px] font-medium">
+                          Finance release
+                        </span>
+                        <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="px-2.5 py-1 rounded-md bg-[#F2EDE8] text-[#241012] border border-[#DDD2C8] text-[11px] font-medium">
+                          Dispatch
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="px-2.5 py-1 rounded-md bg-[#F2EDE8] text-[#241012] border border-[#DDD2C8] text-[11px] font-medium">
+                          PPO review
+                        </span>
+                        <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="px-2.5 py-1 rounded-md bg-[#F2EDE8] text-[#241012] border border-[#DDD2C8] text-[11px] font-medium">
+                          Dispatch
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* Requires Funds / Materials Purchase flag */}
-              <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg p-3.5">
-                <input
-                  type="checkbox"
-                  id="requiresFundsCheckbox"
-                  checked={requiresFunds}
-                  onChange={(e) => setRequiresFunds(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 accent-blue-600 cursor-pointer shrink-0"
-                />
-                <label htmlFor="requiresFundsCheckbox" className="text-sm font-sans cursor-pointer">
-                  <span className="font-semibold text-blue-700">Requires Funds / Materials Purchase?</span>
-                  <span className="block text-slate-700 mt-0.5 leading-relaxed">
-                    Check this if the request involves purchasing materials or a large project requiring budget allocation.
-                    If checked, this will require <strong>President endorsement</strong> and <strong>Finance approval</strong> before dispatch.
-                    Leave unchecked for routine repairs that need no budget release.
-                  </span>
-                </label>
-              </div>
-
-              {/* Emergency / Urgent flag */}
-              <div className="flex items-start gap-3 bg-safety-amber/5 border border-safety-amber/20 rounded-lg p-3.5">
-                <input
-                  type="checkbox"
-                  id="isEmergencyCheckbox"
-                  checked={isEmergency}
-                  onChange={(e) => setIsEmergency(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 accent-safety-amber cursor-pointer shrink-0"
-                />
-                <label htmlFor="isEmergencyCheckbox" className="text-sm font-sans cursor-pointer">
-                  <span className="font-semibold text-safety-amber">Emergency / Urgent Safety Issue</span>
-                  <span className="block text-slate-700 mt-0.5 leading-relaxed">
-                    Check this only for genuinely urgent, safety-critical situations. It lets the Physical Plant Officer dispatch staff immediately on PPO approval alone, skipping School Head and Finance sign-off.
-                  </span>
-                </label>
-              </div>
-
-              {/* Submit */}
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !description.trim() || !requestedByName.trim() || !office.trim()}
-                  className="w-full bg-[#8C2331] text-white font-mono font-bold tracking-wider py-3 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-[#8C2331]/80 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Send className="w-4 h-4" />
-                  {isSubmitting
-                    ? aiEnabled
-                      ? "PROCESSING AI TRIAGE..."
-                      : "PROCESSING TRIAGE..."
-                    : "SUBMIT JOB ORDER"}
-                </button>
-              </div>
-
+              {/* Success notification */}
               {formSuccess && (
-                <div className="bg-soft-green/10 border border-soft-green/20 rounded-lg p-3 text-xs text-soft-green font-sans leading-normal animate-in fade-in">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-800 font-sans leading-normal animate-in fade-in">
                   Job order received.{" "}
                   {aiEnabled
                     ? "The AI-prioritized control room dispatcher has triaged your request."
                     : "The control room dispatcher has triaged your request using rule-based logic."}
                 </div>
               )}
+
+              {/* Footer Actions */}
+              <div className="flex items-center justify-between pt-4 border-t border-[#E8DFD8]">
+                <button
+                  type="button"
+                  onClick={() => setIsFormOpen(false)}
+                  className="text-xs sm:text-sm font-semibold text-slate-600 hover:text-black transition-colors px-2 py-1.5 cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !description.trim() || !requestedByName.trim() || !office.trim()}
+                  className="border border-[#7C1D2D] text-[#7C1D2D] hover:bg-[#7C1D2D] hover:text-white font-mono font-bold text-xs sm:text-sm tracking-wider py-2.5 px-5 sm:px-6 rounded-xl transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  {isSubmitting ? "PROCESSING..." : "SUBMIT JOB ORDER"}
+                </button>
+              </div>
 
             </form>
           </div>
