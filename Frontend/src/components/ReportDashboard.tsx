@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { JobOrder, AuditLogEntry } from "../types";
+import { formatPeso } from "../priceUtils";
 import {
   FileSpreadsheet,
   Download,
@@ -33,7 +34,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
   const [gridData, setGridData] = useState<string[][]>([]);
 
   // Row and Column metadata for simulated Excel grid
-  const columns = ["A", "B", "C", "D", "E", "F", "G", "H", "I"];
+  const columns = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
   const columnHeaders = [
     "Ticket ID",
     "Office Location",
@@ -43,6 +44,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
     "Urgency",
     "Priority Score",
     "Assigned Staff",
+    "Approved Cost",
     "Status"
   ];
 
@@ -58,6 +60,9 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
         String(t.urgency),
         String(t.priorityScore),
         t.assignedStaff,
+        t.approvedAmount !== undefined && t.approvedAmount !== null
+          ? formatPeso(t.approvedAmount)
+          : (t.requiresFunds === false ? "₱0 (No Funds Needed)" : (t.estimatedCost != null ? `Est. ${formatPeso(t.estimatedCost)}` : "Awaiting Finance")),
         t.status
       ]);
       setGridData(formatted);
@@ -265,7 +270,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
                     {row.map((cell, cIdx) => {
                       const isActive = activeCell.row === rIdx && activeCell.col === cIdx;
                       let badgeClass = "";
-                      if (cIdx === 8) {
+                      if (cIdx === 9) {
                         badgeClass =
                           cell === "Completed" ? "bg-soft-green/10 text-soft-green font-bold px-2 py-0.5 rounded border border-soft-green/20" :
                           cell === "In Progress" ? "bg-cyan-accent/10 text-cyan-accent font-bold px-2 py-0.5 rounded border border-cyan-accent/20" :
@@ -280,8 +285,16 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
                             : "text-[#4A322E]"
                           }`}
                         >
-                          {cIdx === 8 ? (
+                          {cIdx === 9 ? (
                             <span className={badgeClass}>{cell}</span>
+                          ) : cIdx === 8 ? (
+                            <span className={`font-mono text-xs ${
+                              cell.startsWith("₱") && !cell.includes("No Funds")
+                                ? "font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200"
+                                : "text-slate-500 font-normal italic"
+                            }`}>
+                              {cell}
+                            </span>
                           ) : cIdx === 6 ? (
                             <span className="font-mono font-bold text-[#2B1210]">{cell}</span>
                           ) : (
@@ -309,8 +322,12 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
                 <div className="absolute top-0 left-0 right-0 h-0.5 bg-[#6B1420]" />
               </div>
             </div>
-            <div className="font-mono text-slate-600 text-xs">
-              Ready • Sum = {tickets.reduce((acc, t) => acc + t.priorityScore, 0)} (Priority)
+            <div className="font-mono text-slate-600 text-xs flex flex-wrap items-center gap-3">
+              <span>Ready</span>
+              <span>•</span>
+              <span>Total Approved: <strong className="text-emerald-700 font-bold">{formatPeso(tickets.reduce((acc, t) => acc + (t.approvedAmount ?? 0), 0))}</strong></span>
+              <span>•</span>
+              <span>Total Priority Sum = {tickets.reduce((acc, t) => acc + t.priorityScore, 0)}</span>
             </div>
           </div>
         </div>
