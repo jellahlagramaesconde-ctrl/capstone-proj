@@ -51,10 +51,26 @@ export interface JobOrder {
 }
 
 export interface Staff {
+  id?: number;
   name: string;
   specialty: string;
   tags: string[];
   workload: number;
+  activeTaskCount?: number;
+}
+
+export interface StaffCandidate {
+  id: number;
+  name: string;
+  specialty: string;
+  proficiency: number;
+  yearsExperience: number;
+  activeTaskCount: number;
+  limit: number;
+  isAtCapacity: boolean;
+  matchScore: number;
+  isAssigned: boolean;
+  isLead: boolean;
 }
 
 export interface LogEntry {

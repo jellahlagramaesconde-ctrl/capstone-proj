@@ -63,6 +63,7 @@ export function mapJobOrderRow(row: any) {
 
 export function mapStaffRow(row: any) {
   return {
+    id: row.id,
     name: row.name,
     specialty: row.specialty,
     tags: row.tags,

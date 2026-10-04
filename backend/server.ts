@@ -2076,6 +2076,83 @@ app.delete("/api/job-orders/:id", authenticateToken, requireRole("PPO"), async (
   }
 });
 
+// Get candidate maintenance staff for a job order with computed match scores
+app.get("/api/job-orders/:id/staff-candidates", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const ticketResult = await pool.query("SELECT * FROM job_orders WHERE id = $1", [id]);
+    if (ticketResult.rows.length === 0) return res.status(404).json({ error: "Job order not found." });
+    const ticket = ticketResult.rows[0];
+
+    const limit = await getWorkerTaskLimit();
+    const result = await pool.query(
+      `SELECT s.id, s.name, s.specialty, COALESCE(ss.proficiency_level, 0) as proficiency_level,
+              COALESCE(ss.years_experience, 0) as years_experience,
+              COALESCE(active.active_count, 0) AS active_count
+       FROM staff s
+       LEFT JOIN staff_skills ss ON ss.staff_id = s.id
+       LEFT JOIN skills sk ON sk.id = ss.skill_id
+       LEFT JOIN job_type_skill_requirements r ON r.skill_id = sk.id
+       LEFT JOIN job_types jt ON jt.id = r.job_type_id AND jt.name = $1
+       LEFT JOIN (
+         SELECT jos.staff_id, COUNT(*) AS active_count
+         FROM job_order_staff jos
+         JOIN job_orders jo ON jo.id = jos.job_order_id
+         WHERE jo.status IN ('Pending', 'In Progress')
+         GROUP BY jos.staff_id
+       ) active ON active.staff_id = s.id
+       WHERE s.user_id IS NOT NULL
+       ORDER BY proficiency_level DESC, years_experience DESC, active_count ASC`,
+      [ticket.job_type]
+    );
+
+    // Also get currently assigned staff IDs for this job order
+    const teamRows = await pool.query(
+      "SELECT staff_id, is_lead, match_score FROM job_order_staff WHERE job_order_id = $1",
+      [id]
+    );
+    const assignedMap = new Map(teamRows.rows.map((r: any) => [r.staff_id, r]));
+
+    const candidates = result.rows.map((row: any) => {
+      const activeLoadPct = Math.min(100, Number(row.active_count) * 20);
+      const proficiencyComponent = (Number(row.proficiency_level) / 5) * 55;
+      const experienceYears = Number(row.years_experience) || 0;
+      const experienceComponent = (Math.min(experienceYears, 10) / 10) * 15;
+      const availabilityComponent = ((100 - activeLoadPct) / 100) * 30;
+      const matchScore = row.proficiency_level > 0
+        ? Math.round(Math.min(100, Math.max(0, proficiencyComponent + experienceComponent + availabilityComponent)))
+        : 0;
+
+      const currentAssignment = assignedMap.get(row.id);
+
+      return {
+        id: row.id,
+        name: row.name,
+        specialty: row.specialty,
+        proficiency: Number(row.proficiency_level),
+        yearsExperience: Number(row.years_experience),
+        activeTaskCount: Number(row.active_count),
+        limit,
+        isAtCapacity: Number(row.active_count) >= limit,
+        matchScore: currentAssignment?.match_score ?? matchScore,
+        isAssigned: Boolean(currentAssignment),
+        isLead: Boolean(currentAssignment?.is_lead) || row.id === ticket.assigned_staff_id,
+      };
+    });
+
+    res.json({
+      jobOrderId: id,
+      jobType: ticket.job_type,
+      assignedStaff: ticket.assigned_staff,
+      assignedStaffId: ticket.assigned_staff_id,
+      candidates,
+    });
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Manual priority/staff override — PPO only
 app.post("/api/job-orders/override", authenticateToken, requireRole("PPO"), async (req, res) => {
   try {
@@ -2120,6 +2197,7 @@ app.post("/api/job-orders/override", authenticateToken, requireRole("PPO"), asyn
       }
     } else if (newStaff === "Outsource") {
       newStaffId = null;
+      await pool.query("DELETE FROM job_order_staff WHERE job_order_id = $1", [id]);
     }
 
     const updateResult = await pool.query(
@@ -2133,21 +2211,57 @@ app.post("/api/job-orders/override", authenticateToken, requireRole("PPO"), asyn
     if (capacityWarningAcknowledged) logMsg += `⚠️ Assigned over the worker task capacity limit — PPO acknowledged the warning. `;
 
     // Manual team roster update — PPO explicitly set who's on the job.
-    // Replaces the current job_order_staff rows for this ticket outright
-    // (not additive), so removing someone from the team works too, not
-    // just adding. The lead stays whichever staff id ended up in
-    // assigned_staff_id above (either just-reassigned, or unchanged).
-    if (Array.isArray(teamStaffIds) && teamStaffIds.length > 0) {
-      const uniqueIds: number[] = [...new Set(teamStaffIds.map((n: any) => Number(n)).filter((n) => Number.isInteger(n)))];
-      const staffRows = await pool.query("SELECT id, name FROM staff WHERE id = ANY($1)", [uniqueIds]);
-      const team = uniqueIds
-        .map((sid) => staffRows.rows.find((r) => r.id === sid))
-        .filter(Boolean)
-        .map((r: any) => ({ id: r.id, name: r.name, matchScore: 0 }));
-      if (team.length > 0) {
-        await pool.query("DELETE FROM job_order_staff WHERE job_order_id = $1", [id]);
-        await saveTeamForJobOrder(id, team, newStaffId);
-        logMsg += `Team set to: ${team.map((m) => m.name).join(", ")}. `;
+    // Replaces the current job_order_staff rows for this ticket outright.
+    if (Array.isArray(teamStaffIds)) {
+      let uniqueIds: number[] = [...new Set(teamStaffIds.map((n: any) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))];
+      // If we have a new lead staff ID and it's not Outsource, ensure lead is in roster
+      if (newStaffId && !uniqueIds.includes(newStaffId)) {
+        uniqueIds.unshift(newStaffId);
+      }
+
+      await pool.query("DELETE FROM job_order_staff WHERE job_order_id = $1", [id]);
+
+      if (uniqueIds.length > 0) {
+        const staffSkillResult = await pool.query(
+          `SELECT s.id, s.name, COALESCE(ss.proficiency_level, 0) as proficiency_level,
+                  COALESCE(ss.years_experience, 0) as years_experience,
+                  COALESCE(active.active_count, 0) as active_count
+           FROM staff s
+           LEFT JOIN staff_skills ss ON ss.staff_id = s.id
+           LEFT JOIN skills sk ON sk.id = ss.skill_id
+           LEFT JOIN job_type_skill_requirements r ON r.skill_id = sk.id
+           LEFT JOIN job_types jt ON jt.id = r.job_type_id AND jt.name = $2
+           LEFT JOIN (
+             SELECT jos.staff_id, COUNT(*) AS active_count
+             FROM job_order_staff jos
+             JOIN job_orders jo ON jo.id = jos.job_order_id
+             WHERE jo.status IN ('Pending', 'In Progress')
+             GROUP BY jos.staff_id
+           ) active ON active.staff_id = s.id
+           WHERE s.id = ANY($1)`,
+          [uniqueIds, ticket.job_type]
+        );
+
+        const team = uniqueIds
+          .map((sid) => {
+            const row = staffSkillResult.rows.find((r: any) => r.id === sid);
+            if (!row) return null;
+            const activeLoadPct = Math.min(100, Number(row.active_count) * 20);
+            const proficiencyComponent = (Number(row.proficiency_level) / 5) * 55;
+            const experienceYears = Number(row.years_experience) || 0;
+            const experienceComponent = (Math.min(experienceYears, 10) / 10) * 15;
+            const availabilityComponent = ((100 - activeLoadPct) / 100) * 30;
+            const matchScore = row.proficiency_level > 0
+              ? Math.round(Math.min(100, Math.max(0, proficiencyComponent + experienceComponent + availabilityComponent)))
+              : 0;
+            return { id: row.id, name: row.name, matchScore };
+          })
+          .filter(Boolean);
+
+        if (team.length > 0) {
+          await saveTeamForJobOrder(id, team as any, newStaffId);
+          logMsg += `Team roster set to: ${team.map((m: any) => m.name).join(", ")}. `;
+        }
       }
     }
 
@@ -2739,8 +2853,8 @@ app.put("/api/job-orders/:id/budget-items", authenticateToken, requireRole("PPO"
       items: Array<{ qty: number; unit?: string; description: string; unitCost: number }>;
     };
 
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: "At least one line item is required." });
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ error: "Items array is required." });
     }
     for (const [i, item] of items.entries()) {
       if (!item.description || !item.description.trim()) {
@@ -2765,26 +2879,35 @@ app.put("/api/job-orders/:id/budget-items", authenticateToken, requireRole("PPO"
     await client.query("BEGIN");
     await client.query("DELETE FROM budget_requisition_items WHERE job_order_id = $1", [id]);
 
-    const values: string[] = [];
-    const params: any[] = [id];
-    items.forEach((item, i) => {
-      params.push(i + 1, item.qty, item.unit ?? null, item.description.trim(), item.unitCost);
-      const base = params.length - 5;
-      values.push(`($1, $${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
-    });
-    await client.query(
-      `INSERT INTO budget_requisition_items (job_order_id, item_no, qty, unit, description, unit_cost) VALUES ${values.join(", ")}`,
-      params
-    );
+    if (items.length > 0) {
+      const values: string[] = [];
+      const params: any[] = [id];
+      items.forEach((item, i) => {
+        params.push(i + 1, item.qty, item.unit ?? null, item.description.trim(), item.unitCost);
+        const base = params.length - 5;
+        values.push(`($1, $${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`);
+      });
+      await client.query(
+        `INSERT INTO budget_requisition_items (job_order_id, item_no, qty, unit, description, unit_cost) VALUES ${values.join(", ")}`,
+        params
+      );
+    }
 
     const updateResult = await client.query(
-      "UPDATE job_orders SET estimated_cost = $2 WHERE id = $1 RETURNING *",
+      `UPDATE job_orders
+       SET estimated_cost = $2,
+           requires_funds = CASE WHEN $2 = 0 THEN FALSE ELSE TRUE END
+       WHERE id = $1 RETURNING *`,
       [id, total]
     );
 
+    const logMessage = items.length > 0
+      ? `Physical Plant Officer set a ${items.length}-item budget requisition for Job Order ${id}, totaling ₱${total.toLocaleString()}.`
+      : `Physical Plant Officer set budget requisition to ₱0 for Job Order ${id} (no materials required).`;
+
     await client.query(
       "INSERT INTO logs (message, ticket_id) VALUES ($1, $2)",
-      [`Physical Plant Officer set a ${items.length}-item budget requisition for Job Order ${id}, totaling ₱${total.toLocaleString()}.`, id]
+      [logMessage, id]
     );
 
     await client.query("COMMIT");

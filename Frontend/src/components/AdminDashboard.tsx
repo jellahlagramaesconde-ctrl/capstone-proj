@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from "react";
-import { JobOrder, Staff, LogEntry, Notification } from "../types";
+import { JobOrder, Staff, LogEntry, Notification, StaffCandidate } from "../types";
 import { TicketStub } from "./TicketStub";
 import { TicketDetailsModal } from "./TicketDetailsModal";
 import { NewJobOrderButton } from "./NewJobOrderButton";
 import { AccountManagementModal, UserAccount } from "./AccountManagementModal";
 import { formatPeso, sumJobOrderCosts } from "../priceUtils";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { RefreshCw, Download, Sliders, Users, FileText, CheckCircle, ChevronDown, Check, GraduationCap, Inbox, Clock, Wallet, UserCheck, AlertTriangle } from "lucide-react";
+import { RefreshCw, Download, Sliders, Users, FileText, CheckCircle, ChevronDown, Check, GraduationCap, Inbox, Clock, Wallet, UserCheck, AlertTriangle, UserPlus, Plus, X, User } from "lucide-react";
 
 interface AdminDashboardProps {
   tickets: JobOrder[];
@@ -16,7 +16,7 @@ interface AdminDashboardProps {
   onCreateUser?: (userData: { username: string; password: string; role: string; fullName: string; email?: string }) => Promise<{ ok: boolean; error?: string }>;
   onDeleteUser?: (id: number) => Promise<{ ok: boolean; error?: string }>;
   onDeleteJobOrder?: (ticketId: string) => Promise<{ ok: boolean; error?: string }>;
-  onOverride: (id: string, assignedStaff: string, priorityScore: number, rationale: string) => void;
+  onOverride: (id: string, assignedStaff: string, priorityScore: number, rationale: string, teamStaffIds?: number[]) => Promise<{ ok: boolean; error?: string }> | void;
   onApprove: (id: string, estimatedCost?: number, emergencyOverride?: boolean, confirmOverride?: boolean, requiresFunds?: boolean) => void;
   onUpdateStatus: (id: string, status: "Pending" | "In Progress" | "Completed") => void;
   onTicketClick?: (ticketId: string) => void;
@@ -38,6 +38,7 @@ interface AdminDashboardProps {
    * pass it through without a type error; wire it into the Staff Workload Roster
    * (e.g. "3/{maxWorkerTaskLimit} active") whenever that's wanted. */
   maxWorkerTaskLimit?: number;
+  authedFetch?: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -65,6 +66,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   readNotificationIds = new Set(),
   onMarkNotificationsRead = () => { },
   maxWorkerTaskLimit,
+  authedFetch,
 }) => {
   // Account Management Modal state
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -87,6 +89,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [selectedStaff, setSelectedStaff] = useState<string>("");
   const [customScore, setCustomScore] = useState<number>(50);
   const [overrideRationale, setOverrideRationale] = useState<string>("");
+  const [overrideTeam, setOverrideTeam] = useState<{ id: number; name: string; matchScore: number; isLead: boolean }[]>([]);
+  const [overrideCandidates, setOverrideCandidates] = useState<StaffCandidate[]>([]);
+  const [isLoadingOverrideCandidates, setIsLoadingOverrideCandidates] = useState(false);
+  const [selectedOverrideAddStaffId, setSelectedOverrideAddStaffId] = useState<string>("");
 
   // Export Loading States
   const [isExportingPDF, setIsExportingPDF] = useState(false);
@@ -175,16 +181,105 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .sort((a, b) => b.count - a.count); // worst first
   }, [tickets]);
 
-  const handleOpenOverride = (ticket: JobOrder) => {
+  const handleOpenOverride = async (ticket: JobOrder) => {
     setOverrideTicket(ticket);
     setSelectedStaff(ticket.assignedStaff);
     setCustomScore(ticket.priorityScore);
     setOverrideRationale("");
+    setSelectedOverrideAddStaffId("");
+
+    const initialTeam = ticket.assignedStaffList && ticket.assignedStaffList.length > 0
+      ? ticket.assignedStaffList.map((m) => ({ ...m }))
+      : [];
+    if (initialTeam.length === 0 && ticket.assignedStaff && ticket.assignedStaff !== "Outsource") {
+      const found = staffRoster.find((s) => s.name === ticket.assignedStaff);
+      if (found && found.id) {
+        initialTeam.push({ id: found.id, name: found.name, matchScore: ticket.matchScore || 0, isLead: true });
+      }
+    }
+    setOverrideTeam(initialTeam);
+
+    setIsLoadingOverrideCandidates(true);
+    try {
+      const token = localStorage.getItem("jors_token");
+      const res = authedFetch
+        ? await authedFetch(`/api/job-orders/${ticket.id}/staff-candidates`)
+        : await fetch(`/api/job-orders/${ticket.id}/staff-candidates`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.candidates)) {
+          setOverrideCandidates(data.candidates);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load staff candidates", err);
+    } finally {
+      setIsLoadingOverrideCandidates(false);
+    }
   };
 
-  const handleApplyOverride = () => {
+  const handleAddStaffToOverrideTeam = () => {
+    if (!selectedOverrideAddStaffId) return;
+    const staffId = Number(selectedOverrideAddStaffId);
+    if (!staffId || overrideTeam.some((m) => m.id === staffId)) return;
+
+    const cand = overrideCandidates.find((c) => c.id === staffId) || staffRoster.find((s) => s.id === staffId);
+    if (!cand) return;
+
+    const newMember = {
+      id: staffId,
+      name: cand.name,
+      matchScore: (cand as StaffCandidate).matchScore ?? 0,
+      isLead: overrideTeam.length === 0,
+    };
+    const updatedTeam = [...overrideTeam, newMember];
+    setOverrideTeam(updatedTeam);
+    setSelectedOverrideAddStaffId("");
+
+    if (selectedStaff === "Outsource" || !selectedStaff) {
+      setSelectedStaff(cand.name);
+    }
+  };
+
+  const handleRemoveStaffFromOverrideTeam = (staffId: number) => {
+    const updatedTeam = overrideTeam.filter((m) => m.id !== staffId);
+    setOverrideTeam(updatedTeam);
+    const removedMember = overrideTeam.find((m) => m.id === staffId);
+    if (removedMember && removedMember.name === selectedStaff) {
+      if (updatedTeam.length > 0) {
+        updatedTeam[0].isLead = true;
+        setSelectedStaff(updatedTeam[0].name);
+      } else {
+        setSelectedStaff("Outsource");
+      }
+    }
+  };
+
+  const handleSetOverrideLead = (staffName: string) => {
+    setSelectedStaff(staffName);
+    if (staffName === "Outsource") {
+      setOverrideTeam([]);
+    } else {
+      const cand = overrideCandidates.find((c) => c.name === staffName) || staffRoster.find((s) => s.name === staffName);
+      if (cand && cand.id) {
+        let updatedTeam = overrideTeam.map((m) => ({ ...m, isLead: m.id === cand.id }));
+        if (!updatedTeam.some((m) => m.id === cand.id)) {
+          updatedTeam = [
+            { id: cand.id, name: cand.name, matchScore: (cand as StaffCandidate).matchScore ?? 0, isLead: true },
+            ...updatedTeam,
+          ];
+        }
+        setOverrideTeam(updatedTeam);
+      }
+    }
+  };
+
+  const handleApplyOverride = async () => {
     if (!overrideTicket) return;
-    onOverride(overrideTicket.id, selectedStaff, customScore, overrideRationale);
+    const teamIds = selectedStaff === "Outsource" ? [] : overrideTeam.map((m) => m.id);
+    await onOverride(overrideTicket.id, selectedStaff, customScore, overrideRationale, teamIds);
 
     setToastMessage(`Ticket ${overrideTicket.id} successfully overridden and reprioritized.`);
     setTimeout(() => setToastMessage(null), 3500);
@@ -757,71 +852,186 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Override Dialog / Modal */}
       {overrideTicket && (
         <div className="fixed inset-0 bg-[#241012]/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-[#DDD2C8] rounded-lg max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150 p-6 text-[#2B1210] text-left shadow-2xl">
-            <h3 className="font-display font-semibold text-lg text-[#241012] mb-2">
-              Manual Override: {overrideTicket.id}
-            </h3>
-            <p className="text-sm text-slate-700 mb-4 font-sans leading-relaxed">
-              Alter the technician dispatch or enforce an administrative priority index override. Overrides are appended to the audit logs.
-            </p>
+          <div className="bg-white border border-[#DDD2C8] rounded-xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150 p-6 text-[#2B1210] text-left shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div>
+              <div className="flex items-center justify-between">
+                <h3 className="font-display font-semibold text-lg text-[#241012]">
+                  Manual Override: {overrideTicket.id}
+                </h3>
+                {isLoadingOverrideCandidates && (
+                  <span className="text-[11px] font-mono text-slate-500 animate-pulse">
+                    Loading matches…
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-600 font-sans leading-relaxed mt-1">
+                Alter the technician dispatch, reconfigure the maintenance team roster, or enforce an administrative priority index override. Overrides are appended to the audit logs.
+              </p>
+            </div>
 
             {/* Target Staff Selection */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">REASSIGN STAFF MEMBER</label>
-                <select
-                  value={selectedStaff}
-                  onChange={(e) => setSelectedStaff(e.target.value)}
-                  className="w-full bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg p-2.5 text-sm text-[#2B1210] focus:outline-none focus:border-cyan-accent font-sans"
-                >
-                  <option value="Outsource">Recommend Outsource (Specialized External Service)</option>
-                  {staffRoster.map((s) => (
+            <div>
+              <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">
+                LEAD TECHNICIAN / REASSIGN STAFF MEMBER
+              </label>
+              <select
+                value={selectedStaff}
+                onChange={(e) => handleSetOverrideLead(e.target.value)}
+                className="w-full bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg p-2.5 text-xs text-[#2B1210] focus:outline-none focus:border-[#7C1D2D] font-sans"
+              >
+                <option value="Outsource">Recommend Outsource (Specialized External Service)</option>
+                {overrideCandidates.length > 0 ? (
+                  overrideCandidates.map((c) => (
+                    <option key={c.id} value={c.name}>
+                      {c.name} — {c.specialty} ({c.matchScore}% Match){c.isAtCapacity ? ` ⚠️ At Capacity (${c.activeTaskCount}/${c.limit})` : ` (${c.activeTaskCount}/${c.limit} active)`}
+                    </option>
+                  ))
+                ) : (
+                  staffRoster.map((s) => (
                     <option key={s.name} value={s.name}>
                       {s.name} ({s.specialty})
                     </option>
-                  ))}
-                </select>
-              </div>
+                  ))
+                )}
+              </select>
+            </div>
 
-              {/* Set custom priority score */}
-              <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-xs font-mono uppercase text-slate-700 font-bold">PRIORITY OVERRIDE INDEX</label>
-                  <span className="font-mono text-[#6B1420] font-semibold bg-cyan-accent/10 px-2 py-0.5 rounded text-sm">
-                    {customScore} / 100
+            {/* Team Roster Management */}
+            {selectedStaff !== "Outsource" && (
+              <div className="space-y-2.5 pt-2 border-t border-[#E6DDD3]">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-mono uppercase text-slate-700 font-bold">
+                    Dispatched Team Roster ({overrideTeam.length} Technicians)
+                  </label>
+                  <span className="text-[11px] font-mono text-slate-500">
+                    {overrideTeam.length > 1 ? "Multi-technician team" : "Solo technician"}
                   </span>
                 </div>
-                <input
-                  type="range"
-                  min="10"
-                  max="100"
-                  value={customScore}
-                  onChange={(e) => setCustomScore(Number(e.target.value))}
-                  className="w-full accent-cyan-accent cursor-pointer"
-                />
-                <div className="flex justify-between text-sm text-slate-600 font-mono mt-1">
-                  <span>10 (MIN)</span>
-                  <span>50 (NORMAL)</span>
-                  <span>75 (URGENT)</span>
-                  <span>100 (CRITICAL)</span>
+
+                <div className="flex flex-wrap gap-2">
+                  {overrideTeam.map((member) => (
+                    <span
+                      key={member.id}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono shadow-xs ${
+                        member.isLead
+                          ? "bg-[#7C1D2D] text-white font-bold"
+                          : "bg-[#FAF7F5] text-[#2B1210] border border-[#DDD2C8]"
+                      }`}
+                    >
+                      <User className="w-3.5 h-3.5" />
+                      <span>{member.name}</span>
+                      {member.isLead ? (
+                        <span className="text-[10px] bg-white/20 px-1 py-0.5 rounded font-normal">Lead</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSetOverrideLead(member.name)}
+                          className="text-[10px] text-cyan-700 hover:underline font-semibold cursor-pointer"
+                        >
+                          Set Lead
+                        </button>
+                      )}
+                      {member.matchScore > 0 && (
+                        <span className="text-[10px] opacity-80">({member.matchScore}%)</span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveStaffFromOverrideTeam(member.id)}
+                        className="ml-1 hover:text-red-600 transition-colors cursor-pointer"
+                        title="Remove technician"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                  {overrideTeam.length === 0 && (
+                    <span className="text-xs text-slate-500 italic">No team members assigned.</span>
+                  )}
+                </div>
+
+                {/* Add Matched Maintenance Staff */}
+                <div className="bg-[#FAF7F5] border border-[#E6DDD3] rounded-lg p-2.5 space-y-1.5">
+                  <span className="text-[11px] font-mono font-bold uppercase text-slate-700 flex items-center gap-1">
+                    <UserPlus className="w-3.5 h-3.5 text-[#7C1D2D]" />
+                    Add Matched Maintenance Staff
+                  </span>
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedOverrideAddStaffId}
+                      onChange={(e) => setSelectedOverrideAddStaffId(e.target.value)}
+                      className="flex-1 bg-white border border-[#DDD2C8] rounded-lg p-2 text-xs text-[#2B1210] focus:outline-none focus:border-[#7C1D2D] font-sans"
+                    >
+                      <option value="">— Select technician to add —</option>
+                      {overrideCandidates
+                        .filter((c) => !overrideTeam.some((m) => m.id === c.id))
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} ({c.specialty}) — {c.matchScore}% Match {c.isAtCapacity ? `[⚠️ At Capacity: ${c.activeTaskCount}/${c.limit}]` : `[${c.activeTaskCount}/${c.limit}]`}
+                          </option>
+                        ))}
+                      {overrideCandidates.length === 0 && staffRoster
+                        .filter((s) => s.id && !overrideTeam.some((m) => m.id === s.id))
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.specialty})
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={!selectedOverrideAddStaffId}
+                      onClick={handleAddStaffToOverrideTeam}
+                      className="px-3 py-1.5 bg-[#7C1D2D] hover:bg-[#7C1D2D]/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add
+                    </button>
+                  </div>
                 </div>
               </div>
+            )}
 
-              {/* Rationale text area */}
-              <div>
-                <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">OVERRIDE EXPLANATION / RATIONALE (REQUIRED)</label>
-                <textarea
-                  value={overrideRationale}
-                  onChange={(e) => setOverrideRationale(e.target.value)}
-                  placeholder="e.g. JO-0143 safety concern outweighs earlier submission times..."
-                  className="w-full h-20 bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg p-2.5 text-xs text-[#2B1210] focus:outline-none focus:border-cyan-accent resize-none placeholder-slate-500 font-sans"
-                />
+            {/* Set custom priority score */}
+            <div className="pt-2 border-t border-[#E6DDD3]">
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-xs font-mono uppercase text-slate-700 font-bold">PRIORITY OVERRIDE INDEX</label>
+                <span className="font-mono text-[#7C1D2D] font-bold bg-[#7C1D2D]/10 px-2 py-0.5 rounded text-xs">
+                  {customScore} / 100
+                </span>
+              </div>
+              <input
+                type="range"
+                min="10"
+                max="100"
+                value={customScore}
+                onChange={(e) => setCustomScore(Number(e.target.value))}
+                className="w-full accent-[#7C1D2D] cursor-pointer"
+              />
+              <div className="flex justify-between text-xs text-slate-500 font-mono mt-1">
+                <span>10 (MIN)</span>
+                <span>50 (NORMAL)</span>
+                <span>75 (URGENT)</span>
+                <span>100 (CRITICAL)</span>
               </div>
             </div>
 
+            {/* Rationale text area */}
+            <div className="pt-2 border-t border-[#E6DDD3]">
+              <label className="block text-xs font-mono uppercase text-slate-700 mb-1.5 font-bold">
+                OVERRIDE EXPLANATION / RATIONALE (REQUIRED)
+              </label>
+              <textarea
+                value={overrideRationale}
+                onChange={(e) => setOverrideRationale(e.target.value)}
+                placeholder="e.g. JO-0143 safety concern outweighs earlier submission times..."
+                className="w-full h-20 bg-[#F5F1EC] border border-[#E6DDD3] rounded-lg p-2.5 text-xs text-[#2B1210] focus:outline-none focus:border-[#7C1D2D] resize-none placeholder-slate-500 font-sans"
+              />
+            </div>
+
             {/* Actions */}
-            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-[#E6DDD3]">
+            <div className="flex justify-end gap-3 pt-3 border-t border-[#E6DDD3]">
               <button
+                type="button"
                 onClick={() => setOverrideTicket(null)}
                 className="px-4 py-2 bg-transparent text-slate-700 border border-[#DDD2C8] rounded text-xs font-mono font-bold hover:text-[#241012] transition-colors cursor-pointer"
               >
@@ -829,9 +1039,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
 
               <button
+                type="button"
                 onClick={handleApplyOverride}
                 disabled={!overrideRationale.trim()}
-                className="px-4 py-2 bg-[#8C2331] text-[#1A0E10] font-mono font-bold rounded text-xs hover:bg-[#8C2331]/80 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className="px-4 py-2 bg-[#7C1D2D] text-white font-mono font-bold rounded text-xs hover:bg-[#7C1D2D]/80 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 APPLY OVERRIDE
               </button>
@@ -846,6 +1057,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         ticket={selectedTicket}
         onClose={() => setSelectedTicket(null)}
         isAdmin={true}
+        staffRoster={staffRoster}
+        authedFetch={authedFetch}
+        onStaffOverride={async (id, assignedStaff, priorityScore, rationale, teamStaffIds) => {
+          const res = await onOverride(id, assignedStaff, priorityScore, rationale, teamStaffIds);
+          setToastMessage(`Job Order ${id} staff dispatch successfully updated.`);
+          setTimeout(() => setToastMessage(null), 3500);
+          return res;
+        }}
         onApprove={(id, estimatedCost, emergencyOverride) => {
           onApprove(id, estimatedCost, emergencyOverride);
         }}

@@ -22,8 +22,13 @@ import {
   Wrench,
   CheckCircle,
   RefreshCw,
-  Trash2
+  Trash2,
+  Sliders,
+  UserPlus,
+  Plus
 } from "lucide-react";
+import { Staff, StaffCandidate } from "../types";
+
 interface TicketDetailsModalProps {
   isOpen: boolean;
   ticket: JobOrder | null;
@@ -31,12 +36,15 @@ interface TicketDetailsModalProps {
   isAdmin?: boolean;
   onApprove?: (ticketId: string, estimatedCost?: number, emergencyOverride?: boolean) => void;
   onOverride?: (ticketId: string) => void;
+  onStaffOverride?: (ticketId: string, assignedStaff: string, priorityScore: number, rationale: string, teamStaffIds?: number[]) => Promise<{ ok: boolean; error?: string } | void>;
   onUpdateStatus?: (ticketId: string, status: "Pending" | "In Progress" | "Completed") => void;
   onFinanceApprove?: (ticketId: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
   onSchoolHeadApprove?: (ticketId: string) => void;
   onDelete?: (ticketId: string) => void;
   onSaveBudgetItems?: (ticketId: string, items: { qty: number; unit?: string; description: string; unitCost: number }[]) => Promise<void>;
   onExtendDeadline?: (ticketId: string, params: { extensionHours?: number; extensionDays?: number; newDeadline?: string; reason: string }) => Promise<{ ok: boolean; error?: string } | void>;
+  staffRoster?: Staff[];
+  authedFetch?: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
@@ -46,12 +54,15 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
   isAdmin = false,
   onApprove,
   onOverride,
+  onStaffOverride,
   onUpdateStatus,
   onFinanceApprove,
   onSchoolHeadApprove,
   onDelete,
   onSaveBudgetItems,
   onExtendDeadline,
+  staffRoster,
+  authedFetch,
 }) => {
   if (!isOpen || !ticket) return null;
 
@@ -71,6 +82,19 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
   const [extensionError, setExtensionError] = useState<string | null>(null);
   const [extensionSuccess, setExtensionSuccess] = useState<string | null>(null);
 
+  // Staff Dispatch Override State
+  const [isEditingDispatch, setIsEditingDispatch] = useState(false);
+  const [editLeadStaff, setEditLeadStaff] = useState<string>("");
+  const [editTeam, setEditTeam] = useState<{ id: number; name: string; matchScore: number; isLead: boolean }[]>([]);
+  const [candidates, setCandidates] = useState<StaffCandidate[]>([]);
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState(false);
+  const [editPriorityScore, setEditPriorityScore] = useState<number>(50);
+  const [editRationale, setEditRationale] = useState<string>("");
+  const [selectedAddStaffId, setSelectedAddStaffId] = useState<string>("");
+  const [isSavingOverride, setIsSavingOverride] = useState(false);
+  const [overrideError, setOverrideError] = useState<string | null>(null);
+  const [overrideSuccess, setOverrideSuccess] = useState<string | null>(null);
+
   useEffect(() => {
     if (ticket) {
       setModalPpoCost(ticket.estimatedCost !== undefined ? String(ticket.estimatedCost) : "");
@@ -88,6 +112,10 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
       setExtensionDays(1);
       setExtensionError(null);
       setExtensionSuccess(null);
+      setIsEditingDispatch(false);
+      setOverrideError(null);
+      setOverrideSuccess(null);
+      setSelectedAddStaffId("");
     }
   }, [ticket, isOpen]);
 
@@ -148,6 +176,137 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
         setExtensionBusy(false);
         setExtensionError(err?.message || "Could not reach server.");
       }
+    }
+  };
+
+  const handleOpenDispatchEditor = async () => {
+    if (!ticket) return;
+    setIsEditingDispatch(true);
+    setEditLeadStaff(ticket.assignedStaff || "Outsource");
+    setEditPriorityScore(ticket.priorityScore || 50);
+    setEditRationale("");
+    setOverrideError(null);
+    setOverrideSuccess(null);
+    setSelectedAddStaffId("");
+
+    // Initialize editTeam from ticket.assignedStaffList
+    const currentTeam = ticket.assignedStaffList && ticket.assignedStaffList.length > 0
+      ? ticket.assignedStaffList.map((m) => ({ ...m }))
+      : [];
+    if (currentTeam.length === 0 && ticket.assignedStaff && ticket.assignedStaff !== "Outsource") {
+      const found = staffRoster?.find((s) => s.name === ticket.assignedStaff);
+      if (found && found.id) {
+        currentTeam.push({ id: found.id, name: found.name, matchScore: ticket.matchScore || 0, isLead: true });
+      }
+    }
+    setEditTeam(currentTeam);
+
+    // Fetch ranked candidates for this ticket's job type
+    setIsLoadingCandidates(true);
+    try {
+      const token = localStorage.getItem("jors_token");
+      const res = authedFetch
+        ? await authedFetch(`/api/job-orders/${ticket.id}/staff-candidates`)
+        : await fetch(`/api/job-orders/${ticket.id}/staff-candidates`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.candidates)) {
+          setCandidates(data.candidates);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load staff candidates", err);
+    } finally {
+      setIsLoadingCandidates(false);
+    }
+  };
+
+  const handleAddStaffToTeam = () => {
+    if (!selectedAddStaffId) return;
+    const staffId = Number(selectedAddStaffId);
+    if (!staffId || editTeam.some((m) => m.id === staffId)) return;
+
+    const cand = candidates.find((c) => c.id === staffId) || staffRoster?.find((s) => s.id === staffId);
+    if (!cand) return;
+
+    const newMember = {
+      id: staffId,
+      name: cand.name,
+      matchScore: (cand as StaffCandidate).matchScore ?? 0,
+      isLead: editTeam.length === 0,
+    };
+    const updatedTeam = [...editTeam, newMember];
+    setEditTeam(updatedTeam);
+    setSelectedAddStaffId("");
+
+    if (editLeadStaff === "Outsource" || !editLeadStaff) {
+      setEditLeadStaff(cand.name);
+    }
+  };
+
+  const handleRemoveStaffFromTeam = (staffId: number) => {
+    const updatedTeam = editTeam.filter((m) => m.id !== staffId);
+    setEditTeam(updatedTeam);
+    const removedMember = editTeam.find((m) => m.id === staffId);
+    if (removedMember && removedMember.name === editLeadStaff) {
+      if (updatedTeam.length > 0) {
+        updatedTeam[0].isLead = true;
+        setEditLeadStaff(updatedTeam[0].name);
+      } else {
+        setEditLeadStaff("Outsource");
+      }
+    }
+  };
+
+  const handleSetLead = (staffName: string) => {
+    setEditLeadStaff(staffName);
+    if (staffName === "Outsource") {
+      setEditTeam([]);
+    } else {
+      const cand = candidates.find((c) => c.name === staffName) || staffRoster?.find((s) => s.name === staffName);
+      if (cand && cand.id) {
+        let updatedTeam = editTeam.map((m) => ({ ...m, isLead: m.id === cand.id }));
+        if (!updatedTeam.some((m) => m.id === cand.id)) {
+          updatedTeam = [
+            { id: cand.id, name: cand.name, matchScore: (cand as StaffCandidate).matchScore ?? 0, isLead: true },
+            ...updatedTeam,
+          ];
+        }
+        setEditTeam(updatedTeam);
+      }
+    }
+  };
+
+  const handleSaveDispatchOverride = async () => {
+    if (!ticket) return;
+    if (!editRationale.trim()) {
+      setOverrideError("Please provide an override rationale / explanation.");
+      return;
+    }
+    setIsSavingOverride(true);
+    setOverrideError(null);
+    try {
+      const teamIds = editLeadStaff === "Outsource" ? [] : editTeam.map((m) => m.id);
+      if (onStaffOverride) {
+        const result = await onStaffOverride(ticket.id, editLeadStaff, editPriorityScore, editRationale.trim(), teamIds);
+        if (result && !result.ok) {
+          setOverrideError(result.error || "Failed to apply override.");
+          return;
+        }
+      } else if (onOverride) {
+        onOverride(ticket.id);
+      }
+      setOverrideSuccess("Staff assignment & dispatch roster updated successfully.");
+      setTimeout(() => {
+        setIsEditingDispatch(false);
+        setOverrideSuccess(null);
+      }, 1500);
+    } catch (err: any) {
+      setOverrideError(err.message || "Failed to apply override.");
+    } finally {
+      setIsSavingOverride(false);
     }
   };
 
@@ -752,71 +911,327 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
 
             {/* Matched Maintenance Staff & Allocation */}
             <div className="border border-[#E6DDD3] p-4 rounded-xl bg-white shadow-2xs">
-              <span className="text-xs font-mono tracking-widest text-slate-600 uppercase font-bold block mb-3">
-                MATCHED MAINTENANCE STAFF &amp; DISPATCH ALLOCATION
-              </span>
-
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#FAF7F5] border border-[#E6DDD3] flex items-center justify-center text-slate-700">
-                    {ticket.assignedStaff === "Outsource" ? (
-                      <AlertTriangle className="w-5 h-5 text-safety-amber" />
-                    ) : (
-                      <User className="w-5 h-5 text-[#7C1D2D]" />
-                    )}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h5 className="font-semibold text-sm text-[#2B1210]">
-                        {ticket.assignedStaff}
-                      </h5>
-                      {ticket.assignedStaffList && ticket.assignedStaffList.find(s => s.name === ticket.assignedStaff)?.isLead && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#7C1D2D]/10 text-[#7C1D2D] font-bold">
-                          Lead Technician
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-600 font-sans mt-0.5">
-                      {ticket.assignedStaff === "Outsource"
-                        ? "Outsourced to industrial specialists due to certification requirements."
-                        : `Assigned specialist for ${ticket.jobType} maintenance.`}
-                    </p>
-                  </div>
-                </div>
-
-                {ticket.assignedStaff !== "Outsource" && ticket.matchScore > 0 && (
-                  <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-right shrink-0">
-                    <span className="text-[10px] font-mono text-emerald-700 uppercase font-bold block">SPECIALTY MATCH</span>
-                    <div className="flex items-center gap-1 justify-end text-emerald-800 font-mono font-bold text-sm mt-0.5">
-                      <Star className="w-3.5 h-3.5 fill-current text-emerald-600" />
-                      <span>{ticket.matchScore}% Accuracy</span>
-                    </div>
-                  </div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                <span className="text-xs font-mono tracking-widest text-slate-600 uppercase font-bold block">
+                  MATCHED MAINTENANCE STAFF &amp; DISPATCH ALLOCATION
+                </span>
+                {isAdmin && ticket.status !== "Completed" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isEditingDispatch) {
+                        setIsEditingDispatch(false);
+                      } else {
+                        handleOpenDispatchEditor();
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-[#7C1D2D]/10 hover:bg-[#7C1D2D]/20 text-[#7C1D2D] transition-colors cursor-pointer self-start sm:self-auto"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    {isEditingDispatch ? "Close Staff Editor" : "Override / Edit Staff"}
+                  </button>
                 )}
               </div>
 
-              {/* Multi-person team roster if assigned */}
-              {ticket.assignedStaffList && ticket.assignedStaffList.length > 1 && (
-                <div className="mt-3 pt-3 border-t border-[#F0EAE4]">
-                  <span className="text-[11px] font-mono text-slate-500 uppercase font-bold block mb-2">
-                    Dispatched Team Roster ({ticket.assignedStaffList.length} Technicians):
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    {ticket.assignedStaffList.map((member) => (
-                      <span
-                        key={member.id}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono ${
-                          member.isLead
-                            ? "bg-[#7C1D2D] text-white font-bold"
-                            : "bg-[#F5F1EC] text-[#2B1210] border border-[#DDD2C8]"
-                        }`}
-                      >
-                        <User className="w-3 h-3" />
-                        {member.name} {member.isLead && "(Lead)"}
-                        <span className="text-[10px] opacity-75 font-normal">({member.matchScore}%)</span>
+              {overrideSuccess && (
+                <div className="mb-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-mono text-emerald-800 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{overrideSuccess}</span>
+                </div>
+              )}
+
+              {overrideError && (
+                <div className="mb-3 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-xs font-mono text-rose-800 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{overrideError}</span>
+                </div>
+              )}
+
+              {/* Edit Mode */}
+              {isEditingDispatch ? (
+                <div className="bg-[#FAF7F5] border border-[#DDD2C8] rounded-xl p-4 space-y-4 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between border-b border-[#E6DDD3] pb-2">
+                    <div className="flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-[#7C1D2D]" />
+                      <h5 className="font-semibold text-xs font-mono uppercase tracking-wider text-[#2B1210]">
+                        Dispatch Override &amp; Maintenance Team Configuration
+                      </h5>
+                    </div>
+                    {isLoadingCandidates && (
+                      <span className="text-[11px] font-mono text-slate-500 animate-pulse">
+                        Loading match recommendations…
                       </span>
-                    ))}
+                    )}
                   </div>
+
+                  {/* 1. Lead Technician Selection */}
+                  <div>
+                    <label className="block text-xs font-mono uppercase text-slate-700 font-bold mb-1">
+                      Lead Technician / Assigned Specialist <span className="text-red-600">*</span>
+                    </label>
+                    <select
+                      value={editLeadStaff}
+                      onChange={(e) => handleSetLead(e.target.value)}
+                      className="w-full bg-white border border-[#DDD2C8] rounded-lg p-2.5 text-xs text-[#2B1210] focus:outline-none focus:border-[#7C1D2D] font-sans"
+                    >
+                      <option value="Outsource">Recommend Outsource (Specialized External Service)</option>
+                      {candidates.length > 0 ? (
+                        candidates.map((c) => (
+                          <option key={c.id} value={c.name}>
+                            {c.name} — {c.specialty} ({c.matchScore}% Match){c.isAtCapacity ? ` ⚠️ Over Capacity (${c.activeTaskCount}/${c.limit})` : ` (${c.activeTaskCount}/${c.limit} tasks)`}
+                          </option>
+                        ))
+                      ) : staffRoster && staffRoster.length > 0 ? (
+                        staffRoster.map((s) => (
+                          <option key={s.name} value={s.name}>
+                            {s.name} ({s.specialty})
+                          </option>
+                        ))
+                      ) : (
+                        <option value={ticket.assignedStaff}>{ticket.assignedStaff}</option>
+                      )}
+                    </select>
+                  </div>
+
+                  {/* 2. Dispatched Team Roster (Multi-person Team) */}
+                  {editLeadStaff !== "Outsource" && (
+                    <div className="space-y-3 pt-2 border-t border-[#E6DDD3]">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-mono uppercase text-slate-700 font-bold">
+                          Assigned Maintenance Team Roster ({editTeam.length} Technicians)
+                        </label>
+                        <span className="text-[11px] font-mono text-slate-500">
+                          {editTeam.length > 1 ? "Multi-technician team" : "Solo technician"}
+                        </span>
+                      </div>
+
+                      {/* Team Member Badges */}
+                      <div className="flex flex-wrap gap-2">
+                        {editTeam.map((member) => (
+                          <span
+                            key={member.id}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono shadow-xs ${
+                              member.isLead
+                                ? "bg-[#7C1D2D] text-white font-bold"
+                                : "bg-white text-[#2B1210] border border-[#DDD2C8]"
+                            }`}
+                          >
+                            <User className="w-3.5 h-3.5" />
+                            <span>{member.name}</span>
+                            {member.isLead ? (
+                              <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded font-normal">Lead</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleSetLead(member.name)}
+                                title="Set as Lead Technician"
+                                className="text-[10px] text-cyan-700 hover:underline px-1 font-semibold cursor-pointer"
+                              >
+                                Set Lead
+                              </button>
+                            )}
+                            {member.matchScore > 0 && (
+                              <span className="text-[10px] opacity-80">({member.matchScore}%)</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveStaffFromTeam(member.id)}
+                              title={`Remove ${member.name} from team`}
+                              className="ml-1 hover:text-red-600 transition-colors p-0.5 rounded cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </span>
+                        ))}
+                        {editTeam.length === 0 && (
+                          <span className="text-xs text-slate-500 font-sans italic">
+                            No team members added yet. Pick a lead technician or add matched staff below.
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Add Matched Maintenance Staff Picker */}
+                      <div className="bg-white border border-[#E6DDD3] rounded-lg p-3 space-y-2 mt-2">
+                        <span className="text-xs font-mono font-bold uppercase text-slate-700 flex items-center gap-1.5">
+                          <UserPlus className="w-3.5 h-3.5 text-[#7C1D2D]" />
+                          Add Matched Maintenance Staff to Team
+                        </span>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <select
+                            value={selectedAddStaffId}
+                            onChange={(e) => setSelectedAddStaffId(e.target.value)}
+                            className="flex-1 bg-[#FAF7F5] border border-[#DDD2C8] rounded-lg p-2 text-xs text-[#2B1210] focus:outline-none focus:border-[#7C1D2D] font-sans"
+                          >
+                            <option value="">— Select a matched technician to add —</option>
+                            {candidates
+                              .filter((c) => !editTeam.some((m) => m.id === c.id))
+                              .map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name} ({c.specialty}) — {c.matchScore}% Accuracy {c.isAtCapacity ? `[⚠️ At Capacity: ${c.activeTaskCount}/${c.limit}]` : `[${c.activeTaskCount}/${c.limit} active]`}
+                                </option>
+                              ))}
+                            {candidates.length === 0 && staffRoster && staffRoster
+                              .filter((s) => s.id && !editTeam.some((m) => m.id === s.id))
+                              .map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name} ({s.specialty})
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={!selectedAddStaffId}
+                            onClick={handleAddStaffToTeam}
+                            className="px-3.5 py-2 bg-[#7C1D2D] hover:bg-[#7C1D2D]/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Add Staff
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. Priority Override Index */}
+                  <div className="pt-2 border-t border-[#E6DDD3]">
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs font-mono uppercase text-slate-700 font-bold">Priority Score Index</label>
+                      <span className="font-mono text-[#7C1D2D] font-bold text-xs bg-[#7C1D2D]/10 px-2 py-0.5 rounded">
+                        {editPriorityScore} / 100
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="10"
+                      max="100"
+                      value={editPriorityScore}
+                      onChange={(e) => setEditPriorityScore(Number(e.target.value))}
+                      className="w-full accent-[#7C1D2D] cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-500 font-mono mt-0.5">
+                      <span>10 (MIN)</span>
+                      <span>50 (NORMAL)</span>
+                      <span>75 (URGENT)</span>
+                      <span>100 (CRITICAL)</span>
+                    </div>
+                  </div>
+
+                  {/* 4. Override Rationale */}
+                  <div className="pt-2 border-t border-[#E6DDD3]">
+                    <label className="block text-xs font-mono uppercase text-slate-700 font-bold mb-1">
+                      Override Explanation / Rationale <span className="text-red-600">*</span>
+                    </label>
+                    <textarea
+                      value={editRationale}
+                      onChange={(e) => setEditRationale(e.target.value)}
+                      placeholder="e.g. Reassigned to specialist team given height safety requirements and multi-point electrical fault..."
+                      rows={2}
+                      className="w-full bg-white border border-[#DDD2C8] rounded-lg p-2.5 text-xs text-[#2B1210] focus:outline-none focus:border-[#7C1D2D] resize-none placeholder-slate-400 font-sans"
+                    />
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex justify-end gap-2 pt-2 border-t border-[#E6DDD3]">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingDispatch(false)}
+                      className="px-3 py-1.5 border border-[#DDD2C8] rounded-lg text-xs font-mono text-slate-600 hover:text-black cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isSavingOverride || !editRationale.trim()}
+                      onClick={handleSaveDispatchOverride}
+                      className="px-4 py-1.5 bg-[#7C1D2D] hover:bg-[#7C1D2D]/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                    >
+                      {isSavingOverride ? "Saving Override…" : "Save Override"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Normal Read View */
+                <div>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#FAF7F5] border border-[#E6DDD3] flex items-center justify-center text-slate-700">
+                        {ticket.assignedStaff === "Outsource" ? (
+                          <AlertTriangle className="w-5 h-5 text-safety-amber" />
+                        ) : (
+                          <User className="w-5 h-5 text-[#7C1D2D]" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h5 className="font-semibold text-sm text-[#2B1210]">
+                            {ticket.assignedStaff}
+                          </h5>
+                          {ticket.assignedStaffList && ticket.assignedStaffList.find(s => s.name === ticket.assignedStaff)?.isLead && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#7C1D2D]/10 text-[#7C1D2D] font-bold">
+                              Lead Technician
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-600 font-sans mt-0.5">
+                          {ticket.assignedStaff === "Outsource"
+                            ? "Outsourced to industrial specialists due to certification requirements."
+                            : `Assigned specialist for ${ticket.jobType} maintenance.`}
+                        </p>
+                      </div>
+                    </div>
+
+                    {ticket.assignedStaff !== "Outsource" && ticket.matchScore > 0 && (
+                      <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-right shrink-0">
+                        <span className="text-[10px] font-mono text-emerald-700 uppercase font-bold block">SPECIALTY MATCH</span>
+                        <div className="flex items-center gap-1 justify-end text-emerald-800 font-mono font-bold text-sm mt-0.5">
+                          <Star className="w-3.5 h-3.5 fill-current text-emerald-600" />
+                          <span>{ticket.matchScore}% Accuracy</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Multi-person team roster if assigned */}
+                  {ticket.assignedStaffList && ticket.assignedStaffList.length > 1 && (
+                    <div className="mt-3 pt-3 border-t border-[#F0EAE4]">
+                      <span className="text-[11px] font-mono text-slate-500 uppercase font-bold block mb-2">
+                        Dispatched Team Roster ({ticket.assignedStaffList.length} Technicians):
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {ticket.assignedStaffList.map((member) => (
+                          <span
+                            key={member.id}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono ${
+                              member.isLead
+                                ? "bg-[#7C1D2D] text-white font-bold"
+                                : "bg-[#F5F1EC] text-[#2B1210] border border-[#DDD2C8]"
+                            }`}
+                          >
+                            <User className="w-3 h-3" />
+                            {member.name} {member.isLead && "(Lead)"}
+                            <span className="text-[10px] opacity-75 font-normal">({member.matchScore}%)</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quick Action to Add Maintenance Staff for PPO */}
+                  {isAdmin && ticket.status !== "Completed" && (
+                    <div className="mt-3 pt-2.5 border-t border-[#F0EAE4] flex items-center justify-between">
+                      <span className="text-xs text-slate-500 font-sans">
+                        Need another technician or want to reassign?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleOpenDispatchEditor}
+                        className="inline-flex items-center gap-1.5 text-xs font-mono font-bold text-[#7C1D2D] hover:underline cursor-pointer"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        + Add / Override Staff
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1008,7 +1423,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => {
-                          const est = modalPpoCost ? Number(modalPpoCost) : undefined;
+                          const est = modalPpoCost.trim() !== "" ? Number(modalPpoCost) : undefined;
                           onApprove?.(ticket.id, est, ticket.isEmergency || modalEmergencyOverride);
                           onClose();
                         }}

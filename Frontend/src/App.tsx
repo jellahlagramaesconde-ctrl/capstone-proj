@@ -1316,13 +1316,14 @@ export default function App() {
     assignedStaff: string,
     priorityScore: number,
     rationale: string,
-    confirmOverride: boolean = false
-  ) => {
+    confirmOverride: boolean = false,
+    teamStaffIds?: number[]
+  ): Promise<{ ok: boolean; error?: string }> => {
     try {
       const res = await authedFetch("/api/job-orders/override", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, assignedStaff, priorityScore, rationale, confirmOverride }),
+        body: JSON.stringify({ id, assignedStaff, priorityScore, rationale, confirmOverride, teamStaffIds }),
       });
       if (!res.ok) {
         const errorData = await res.json().catch(() => null);
@@ -1332,19 +1333,21 @@ export default function App() {
         if (errorData?.warning) {
           const proceed = window.confirm(errorData.error);
           if (proceed) {
-            await handleOverride(id, assignedStaff, priorityScore, rationale, true);
+            return await handleOverride(id, assignedStaff, priorityScore, rationale, true, teamStaffIds);
           }
-          return;
+          return { ok: false, error: "Override cancelled due to capacity warning." };
         }
         const message = (errorData && errorData.error) || "Failed override on server.";
         throw new Error(message);
       }
       await fetchDatabase();
+      return { ok: true };
     } catch (err: any) {
       console.error(err);
       // Previously this error was only logged to the console, so a PPO
       // hitting a blocked reassignment saw nothing happen and no explanation why.
       alert(`Unable to reassign this job order: ${err?.message || "unknown error"}`);
+      return { ok: false, error: err?.message || "Unknown error" };
     }
   };
 
@@ -2079,6 +2082,7 @@ export default function App() {
                   notifications={myNotifications}
                   readNotificationIds={readNotificationIds}
                   onMarkNotificationsRead={markNotificationsRead}
+                  authedFetch={authedFetch}
                 />
               ) : loginAdminRole === "President" ? (
                 <SchoolHeadDashboard
