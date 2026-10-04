@@ -94,9 +94,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isLoadingOverrideCandidates, setIsLoadingOverrideCandidates] = useState(false);
   const [selectedOverrideAddStaffId, setSelectedOverrideAddStaffId] = useState<string>("");
 
-  // Export Loading States
-  const [isExportingPDF, setIsExportingPDF] = useState(false);
-  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  // Toast notification state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // PPO Bypass President modal state
@@ -149,18 +147,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     return result.sort((a, b) => b.priorityScore - a.priorityScore);
   }, [tickets, filterType, activeSubTab]);
-
-  // Aggregate data for "Requests by Department" Recharts horizontal bar chart
-  const departmentChartData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    tickets.forEach((t) => {
-      counts[t.office] = (counts[t.office] || 0) + 1;
-    });
-    return Object.entries(counts).map(([name, count]) => ({
-      name: name.replace("Office", "Off.").replace("Laboratory", "Lab"),
-      count,
-    }));
-  }, [tickets]);
 
   // Recurring Issues: group unresolved tickets by office + jobType.
   // Any group with 3+ open tickets is flagged as a systemic/recurring problem.
@@ -290,24 +276,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setToastMessage(`Ticket ${overrideTicket.id} successfully overridden and reprioritized.`);
     setTimeout(() => setToastMessage(null), 3500);
     setOverrideTicket(null);
-  };
-
-  const triggerExport = (type: "PDF" | "Excel") => {
-    if (type === "PDF") {
-      setIsExportingPDF(true);
-      setTimeout(() => {
-        setIsExportingPDF(false);
-        setToastMessage("PDF Report successfully generated and downloaded to device!");
-        setTimeout(() => setToastMessage(null), 3000);
-      }, 1500);
-    } else {
-      setIsExportingExcel(true);
-      setTimeout(() => {
-        setIsExportingExcel(false);
-        setToastMessage("Excel Worksheet successfully exported and saved!");
-        setTimeout(() => setToastMessage(null), 3000);
-      }, 1500);
-    }
   };
 
   return (
@@ -781,53 +749,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 );
               })}
-            </div>
-          </div>
-
-          {/* Reports Panel with Recharts BarChart */}
-          <div className="bg-white border border-[#E6DDD3] rounded-lg p-4 sm:p-6 shadow-sm">
-            <h3 className="font-display font-semibold text-base text-[#241012] flex items-center gap-2 mb-4 pb-3 border-b border-[#E6DDD3]">
-              <FileText className="w-4 h-4 text-cyan-accent" /> Requests by Department
-            </h3>
-
-            {/* Horizontal Bar Chart */}
-            <div className="w-full h-44 mb-4 select-none">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={departmentChartData} layout="vertical" margin={{ left: -15, right: 10, top: 0, bottom: 0 }}>
-                  <XAxis type="number" stroke="#6b7280" tick={{ fontSize: 10, fontFamily: 'monospace' }} allowDecimals={false} />
-                  <YAxis dataKey="name" type="category" stroke="#6b7280" tick={{ fontSize: 10 }} width={80} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: document.documentElement.classList.contains("dark") ? "#2A1518" : "#fff",
-                      borderColor: document.documentElement.classList.contains("dark") ? "#3A1F22" : "#cbd5e1",
-                      borderRadius: 8
-                    }}
-                    itemStyle={{ color: "#8C2331", fontStyle: "monospace" }}
-                  />
-                  <Bar dataKey="count" fill="#8C2331" radius={[0, 4, 4, 0]} barSize={12} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Export buttons */}
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                onClick={() => triggerExport("PDF")}
-                disabled={isExportingPDF}
-                className="flex items-center justify-center gap-1.5 py-2.5 px-3.5 bg-[#8C2331]/15 hover:bg-[#8C2331]/30 border border-[#8C2331]/30 text-[#8C2331] text-xs font-mono font-bold rounded transition-colors cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                {isExportingPDF ? "PDF EXPORT..." : "EXPORT PDF"}
-              </button>
-
-              <button
-                onClick={() => triggerExport("Excel")}
-                disabled={isExportingExcel}
-                className="flex items-center justify-center gap-1.5 py-2.5 px-3.5 bg-[#F0EAE4] hover:bg-[#E6DDD3] border border-[#DDD2C8] text-[#2B1210] text-xs font-mono font-bold rounded transition-colors cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                {isExportingExcel ? "EXCEL EXP..." : "EXPORT EXCEL"}
-              </button>
             </div>
           </div>
 

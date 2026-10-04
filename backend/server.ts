@@ -3004,9 +3004,19 @@ app.get("/api/audit-log", authenticateToken, requireRole("PPO"), async (req: Aut
 app.post("/api/reports/analyze", authenticateToken, requireRole("PPO"), async (req, res) => {
 
   try {
-    const { promptType } = req.body;
+    const { promptType, from } = req.body;
     const ordersResult = await pool.query("SELECT * FROM job_orders ORDER BY priority_score DESC");
-    const jobOrders = ordersResult.rows.map(mapJobOrderRow);
+    let jobOrders = ordersResult.rows.map(mapJobOrderRow);
+    if (from) {
+      const cutoff = new Date(from).getTime();
+      if (!isNaN(cutoff)) {
+        jobOrders = jobOrders.filter((j: any) => {
+          const ts = new Date(j.dateSubmitted).getTime();
+          return isNaN(ts) ? true : ts >= cutoff;
+        });
+      }
+    }
+
 
     let analysisFocus = "General Facilities Maintenance Analysis";
     if (promptType === "bottlenecks") analysisFocus = "Resource Bottlenecks, Staff Workload, and Capacity Planning";

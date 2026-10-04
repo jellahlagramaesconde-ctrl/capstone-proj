@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { JobOrder, AuditLogEntry } from "../types";
 import { formatPeso } from "../priceUtils";
 import {
@@ -10,18 +10,151 @@ import {
   AlertCircle,
   ShieldCheck,
   Search,
-  Filter
+  Filter,
+  Sparkles,
+  Printer,
+  ClipboardList,
+  CheckCircle2,
+  Clock,
+  Timer,
+  Building2,
+  AlertTriangle
 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 interface ReportDashboardProps {
   tickets: JobOrder[];
   authedFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
+type RangeKey = "7d" | "30d" | "semester" | "all";
+
+const RANGE_OPTIONS: { key: RangeKey; label: string; days: number | null }[] = [
+  { key: "7d", label: "Last 7 days", days: 7 },
+  { key: "30d", label: "Last 30 days", days: 30 },
+  { key: "semester", label: "This semester (180 days)", days: 180 },
+  { key: "all", label: "All time", days: null },
+];
+
+const escHtml = (s: string) =>
+  String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const downloadCSV = (filename: string, rows: (string | number)[][]) => {
+  const csv = rows
+    .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
+// Opens a clean print-ready window; choose "Save as PDF" in the print dialog.
+const openPrintWindow = (title: string, bodyHtml: string) => {
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;color:#2B1210;padding:32px;line-height:1.5}
+  h1{font-size:20px;margin:0 0 4px;color:#6B1420}
+  h2{font-size:16px;margin:18px 0 6px;color:#6B1420}
+  h3{font-size:14px;margin:14px 0 4px}
+  p{font-size:12px;margin:4px 0}
+  .meta{color:#555;margin-bottom:18px}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+  th,td{border:1px solid #ddd2c8;padding:7px 10px;text-align:left}
+  th{background:#f0eae4}
+  td.n,th.n{text-align:right}
+  tfoot td{font-weight:bold;background:#f5f1ec}
+  ul{font-size:13px;padding-left:20px}
+</style></head><body>${bodyHtml}</body></html>`;
+  const w = window.open("", "_blank", "width=900,height=700");
+  if (!w) {
+    alert("Please allow pop-ups to export the PDF.");
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300);
+};
+
+// Minimal Markdown renderer for the AI report (headers, bullets, bold, tables).
+const renderInline = (text: string): React.ReactNode[] =>
+  text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**")
+      ? <strong key={i}>{part.slice(2, -2)}</strong>
+      : <React.Fragment key={i}>{part.replace(/\*/g, "")}</React.Fragment>
+  );
+
+const MarkdownReport: React.FC<{ text: string }> = ({ text }) => {
+  const lines = text.split(/\r?\n/);
+  const out: React.ReactNode[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed) { i++; continue; }
+    if (trimmed.startsWith("|")) {
+      const tableLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) { tableLines.push(lines[i].trim()); i++; }
+      const rows = tableLines
+        .filter((l) => !/^\|[\s:|-]+\|?$/.test(l))
+        .map((l) => l.replace(/^\||\|$/g, "").split("|").map((c) => c.trim()));
+      if (rows.length) {
+        out.push(
+          <div key={`t${i}`} className="overflow-x-auto my-2">
+            <table className="min-w-full text-xs border-collapse">
+              <thead>
+                <tr>{rows[0].map((c, k) => <th key={k} className="border border-[#E6DDD3] bg-[#F0EAE4] px-2 py-1 text-left">{renderInline(c)}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.slice(1).map((r, ri) => (
+                  <tr key={ri}>{r.map((c, k) => <td key={k} className="border border-[#E6DDD3] px-2 py-1">{renderInline(c)}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+      continue;
+    }
+    if (/^#{1,2}\s/.test(trimmed)) {
+      out.push(<h4 key={i} className="font-display font-bold text-sm text-[#6B1420] mt-4 mb-1">{renderInline(trimmed.replace(/^#+\s*/, ""))}</h4>);
+    } else if (/^#{3,}\s/.test(trimmed)) {
+      out.push(<h5 key={i} className="font-display font-semibold text-xs text-[#2B1210] mt-3 mb-1 uppercase tracking-wide">{renderInline(trimmed.replace(/^#+\s*/, ""))}</h5>);
+    } else if (/^[-*]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed)) {
+      const items: string[] = [];
+      while (i < lines.length && (/^\s*[-*]\s/.test(lines[i]) || /^\s*\d+\.\s/.test(lines[i]))) {
+        items.push(lines[i].trim().replace(/^([-*]|\d+\.)\s+/, ""));
+        i++;
+      }
+      out.push(
+        <ul key={`l${i}`} className="list-disc pl-5 space-y-1 text-xs text-[#4A322E]">
+          {items.map((it, k) => <li key={k}>{renderInline(it)}</li>)}
+        </ul>
+      );
+      continue;
+    } else {
+      out.push(<p key={i} className="text-xs text-[#4A322E] my-1">{renderInline(trimmed)}</p>);
+    }
+    i++;
+  }
+  return <>{out}</>;
+};
+
 export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authedFetch }) => {
-  const [activeCell, setActiveCell] = useState<{ row: number; col: number }>({ row: 0, col: 0 });
-  const [editValue, setEditValue] = useState("");
   const [copiedTable, setCopiedTable] = useState(false);
+  const [range, setRange] = useState<RangeKey>("all");
+
+  // AI insights state
+  const [aiReport, setAiReport] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiFocus, setAiFocus] = useState("general");
 
   // Audit log state
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
@@ -30,28 +163,37 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
   const [auditSearch, setAuditSearch] = useState("");
   const [auditActionFilter, setAuditActionFilter] = useState("All");
 
-  // Local grid values based on job orders
-  const [gridData, setGridData] = useState<string[][]>([]);
+  const rangeMeta = RANGE_OPTIONS.find((r) => r.key === range)!;
+  const rangeCutoff = useMemo(
+    () => (rangeMeta.days ? Date.now() - rangeMeta.days * 24 * 3600 * 1000 : null),
+    [range]
+  );
 
-  // Row and Column metadata for simulated Excel grid
-  const columns = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
+  // Tickets inside the selected date range (by submission date)
+  const scopedTickets = useMemo(() => {
+    if (rangeCutoff === null) return tickets;
+    return tickets.filter((t) => {
+      const ts = new Date(t.dateSubmitted).getTime();
+      return isNaN(ts) ? true : ts >= rangeCutoff;
+    });
+  }, [tickets, rangeCutoff]);
+
   const columnHeaders = [
     "Ticket ID",
-    "Office Location",
-    "Request Description",
+    "Office",
+    "Description",
     "Job Type",
     "Safety Risk",
     "Urgency",
-    "Priority Score",
+    "Priority",
     "Assigned Staff",
     "Approved Cost",
-    "Status"
+    "Status",
   ];
 
-  // Load ticket data into Excel sheet grid
-  useEffect(() => {
-    if (tickets && tickets.length > 0) {
-      const formatted = tickets.map((t) => [
+  const gridData = useMemo<string[][]>(
+    () =>
+      scopedTickets.map((t) => [
         t.id,
         t.office,
         t.description,
@@ -63,59 +205,157 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
         t.approvedAmount !== undefined && t.approvedAmount !== null
           ? formatPeso(t.approvedAmount)
           : (t.requiresFunds === false ? "₱0 (No Funds Needed)" : (t.estimatedCost != null ? `Est. ${formatPeso(t.estimatedCost)}` : "Awaiting Finance")),
-        t.status
-      ]);
-      setGridData(formatted);
-    }
-  }, [tickets]);
+        t.status,
+      ]),
+    [scopedTickets]
+  );
 
-  // Update formula/input bar when active cell changes
-  useEffect(() => {
-    if (gridData.length > 0 && activeCell.row >= 0 && activeCell.row < gridData.length) {
-      setEditValue(gridData[activeCell.row][activeCell.col] || "");
-    }
-  }, [activeCell, gridData]);
+  // Summary statistics
+  const stats = useMemo(() => {
+    const total = scopedTickets.length;
+    const completed = scopedTickets.filter((t) => t.status === "Completed");
+    const open = total - completed.length;
+    const durations = completed
+      .map((t) =>
+        t.dateCompleted
+          ? (new Date(t.dateCompleted).getTime() - new Date(t.dateSubmitted).getTime()) / (24 * 3600 * 1000)
+          : NaN
+      )
+      .filter((d) => !isNaN(d) && d >= 0);
+    const avgDays = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null;
+    const now = Date.now();
+    const overdue = scopedTickets.filter(
+      (t) => t.status !== "Completed" && t.deadline && new Date(t.deadline).getTime() < now
+    ).length;
+    const totalApproved = scopedTickets.reduce((acc, t) => acc + (t.approvedAmount ?? 0), 0);
+    return {
+      total,
+      completedCount: completed.length,
+      open,
+      completionRate: total ? Math.round((completed.length / total) * 100) : 0,
+      avgDays,
+      overdue,
+      totalApproved,
+    };
+  }, [scopedTickets]);
 
-  const handleCellClick = (row: number, col: number) => {
-    setActiveCell({ row, col });
-  };
+  // Requests by Department: merge near-duplicate office names (e.g. "Registrar's Off." vs "Registrar Off.")
+  const departmentChartData = useMemo(() => {
+    const normalize = (s: string) =>
+      s.toLowerCase().replace(/['’]s\b/g, "").replace(/\s+/g, " ").trim();
+    const groups: Record<string, { name: string; completed: number; open: number; total: number }> = {};
+    scopedTickets.forEach((t) => {
+      const key = normalize(t.office || "Unknown");
+      if (!groups[key]) groups[key] = { name: t.office || "Unknown", completed: 0, open: 0, total: 0 };
+      if (t.status === "Completed") groups[key].completed += 1;
+      else groups[key].open += 1;
+      groups[key].total += 1;
+    });
+    return Object.values(groups).sort((a, b) => b.total - a.total);
+  }, [scopedTickets]);
 
-  const handleCellValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setEditValue(val);
-    if (gridData.length > 0) {
-      const updated = [...gridData];
-      updated[activeCell.row][activeCell.col] = val;
-      setGridData(updated);
-    }
-  };
+  const busiest = departmentChartData[0];
+  const stamp = new Date().toISOString().slice(0, 10);
 
-  // Export spreadsheet data to CSV
   const handleExportCSV = () => {
     if (gridData.length === 0) return;
-    const csvContent = [
-      columnHeaders.join(","),
-      ...gridData.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(","))
-    ].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `COSCA_Facilities_Ready_Report_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadCSV(`COSCA_Job_Orders_Report_${stamp}.csv`, [columnHeaders, ...gridData]);
   };
 
   const handleCopyTable = () => {
     if (gridData.length === 0) return;
-    const text = [
-      columnHeaders.join("\t"),
-      ...gridData.map(row => row.join("\t"))
-    ].join("\n");
+    const text = [columnHeaders.join("\t"), ...gridData.map((row) => row.join("\t"))].join("\n");
     navigator.clipboard.writeText(text);
     setCopiedTable(true);
     setTimeout(() => setCopiedTable(false), 2000);
+  };
+
+  const handleExportDepartmentCSV = () => {
+    if (departmentChartData.length === 0) return;
+    downloadCSV(`COSCA_Requests_By_Department_${stamp}.csv`, [
+      ["Department", "Total Requests", "Completed", "Open"],
+      ...departmentChartData.map((d) => [d.name, d.total, d.completed, d.open]),
+    ]);
+  };
+
+  // Full report PDF: summary + department table
+  const handleExportDepartmentPDF = () => {
+    if (departmentChartData.length === 0) return;
+    const rowsHtml = departmentChartData
+      .map(
+        (d) =>
+          `<tr><td>${escHtml(d.name)}</td><td class="n">${d.total}</td><td class="n">${d.completed}</td><td class="n">${d.open}</td></tr>`
+      )
+      .join("");
+    const avg = stats.avgDays !== null ? `${stats.avgDays.toFixed(1)} days` : "N/A";
+    openPrintWindow(
+      "COSCA Facilities Report",
+      `<h1>COSCA Facilities Report</h1>
+<p class="meta">${escHtml(rangeMeta.label)} · Generated ${new Date().toLocaleString()}</p>
+<h2>Summary</h2>
+<ul>
+  <li>Total requests: <b>${stats.total}</b></li>
+  <li>Completed: <b>${stats.completedCount}</b> (${stats.completionRate}%)</li>
+  <li>Open backlog: <b>${stats.open}</b> (overdue: ${stats.overdue})</li>
+  <li>Average completion time: <b>${avg}</b></li>
+  <li>Total approved cost: <b>${escHtml(formatPeso(stats.totalApproved))}</b></li>
+</ul>
+<h2>Requests by Department</h2>
+<table><thead><tr><th>Department</th><th class="n">Total</th><th class="n">Completed</th><th class="n">Open</th></tr></thead>
+<tbody>${rowsHtml}</tbody>
+<tfoot><tr><td>All Departments</td><td class="n">${stats.total}</td><td class="n">${stats.completedCount}</td><td class="n">${stats.open}</td></tr></tfoot>
+</table>`
+    );
+  };
+
+  // AI Insights
+  const focusOptions = [
+    { key: "general", label: "General overview" },
+    { key: "bottlenecks", label: "Bottlenecks & workload" },
+    { key: "safety", label: "Safety & urgency" },
+    { key: "balancing", label: "Staff balancing" },
+  ];
+
+  const generateInsights = async () => {
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const res = await authedFetch("/api/reports/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          promptType: aiFocus,
+          from: rangeCutoff !== null ? new Date(rangeCutoff).toISOString() : null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to generate insights.");
+      setAiReport(data.report || "No report content generated.");
+    } catch (err: any) {
+      setAiError(err.message || "Could not generate insights.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const printAiReport = () => {
+    if (!aiReport) return;
+    const body = aiReport
+      .split(/\r?\n/)
+      .map((l) => {
+        const t = l.trim();
+        if (!t) return "";
+        const bold = (s: string) => escHtml(s).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+        if (/^#{1,2}\s/.test(t)) return `<h2>${bold(t.replace(/^#+\s*/, ""))}</h2>`;
+        if (/^#{3,}\s/.test(t)) return `<h3>${bold(t.replace(/^#+\s*/, ""))}</h3>`;
+        if (/^[-*]\s/.test(t)) return `<ul><li>${bold(t.replace(/^[-*]\s+/, ""))}</li></ul>`;
+        return `<p>${bold(t)}</p>`;
+      })
+      .join("");
+    openPrintWindow(
+      "COSCA AI Insights",
+      `<h1>COSCA Facilities Insights</h1><p class="meta">${escHtml(rangeMeta.label)} · Generated ${new Date().toLocaleString()}</p>${body}`
+    );
   };
 
   // Fetch audit log
@@ -156,7 +396,9 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
       e.jobOrderId.toLowerCase().includes(q) ||
       (e.actorName ?? "").toLowerCase().includes(q) ||
       (e.reason ?? "").toLowerCase().includes(q);
-    return matchesAction && matchesSearch;
+    const ts = new Date(e.createdAt).getTime();
+    const inRange = rangeCutoff === null || isNaN(ts) || ts >= rangeCutoff;
+    return matchesAction && matchesSearch && inRange;
   });
 
   const handleExportAuditCSV = () => {
@@ -173,49 +415,181 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
       e.newValue ?? "",
       new Date(e.createdAt).toLocaleString(),
     ]);
-    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `COSCA_Approval_Audit_Log_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    downloadCSV(`COSCA_Approval_Audit_Log_${stamp}.csv`, [headers, ...rows]);
   };
+
+  const statCards = [
+    { label: "Total Requests", value: String(stats.total), sub: rangeMeta.label, icon: ClipboardList },
+    { label: "Completed", value: `${stats.completionRate}%`, sub: `${stats.completedCount} of ${stats.total} done`, icon: CheckCircle2 },
+    { label: "Open Backlog", value: String(stats.open), sub: stats.overdue > 0 ? `${stats.overdue} overdue` : "None overdue", icon: stats.overdue > 0 ? AlertTriangle : Clock },
+    { label: "Avg. Completion", value: stats.avgDays !== null ? `${stats.avgDays.toFixed(1)}d` : "—", sub: "Submitted → completed", icon: Timer },
+    { label: "Busiest Office", value: busiest ? String(busiest.total) : "—", sub: busiest ? busiest.name : "No data", icon: Building2 },
+  ];
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-[#F5F1EC] overflow-y-auto" id="report-dashboard">
       <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6 sm:space-y-8">
 
-        {/* SECTION 1: INTERACTIVE EXCEL LAYOUT ENGINE */}
-        <div className="bg-white border border-[#E6DDD3] rounded-xl shadow-sm overflow-hidden flex flex-col">
-          {/* Excel Menu Bar */}
-          <div className="px-4 py-3 bg-[#F5F1EC] border-b border-[#E6DDD3] flex flex-wrap gap-4 items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="px-2 py-1 bg-[#6B1420] text-white rounded font-mono text-xs font-bold shadow-sm">
-                XLSX
+        {/* HEADER + DATE RANGE */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display font-bold text-xl text-[#241012]">Reports &amp; Insights</h2>
+            <p className="text-sm text-slate-600 font-sans mt-0.5">Track repair trends, workload and approvals, then download reports.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Filter className="w-3.5 h-3.5 text-slate-500" />
+            <select
+              id="report-range"
+              value={range}
+              onChange={(e) => setRange(e.target.value as RangeKey)}
+              className="text-xs font-mono border border-[#E6DDD3] rounded-lg bg-white px-3 py-2 text-[#2B1210] focus:outline-none focus:border-[#6B1420] cursor-pointer"
+            >
+              {RANGE_OPTIONS.map((r) => (
+                <option key={r.key} value={r.key}>{r.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* SUMMARY CARDS */}
+        <section className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+          {statCards.map((c) => {
+            const Icon = c.icon;
+            return (
+              <div key={c.label} className="bg-white border border-[#E6DDD3] rounded-xl p-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-600">{c.label}</span>
+                  <Icon className="w-4 h-4 text-[#6B1420]" />
+                </div>
+                <div className="text-2xl font-mono font-bold text-[#241012] mt-2 leading-none">{c.value}</div>
+                <p className="text-xs text-slate-600 font-sans mt-1.5 truncate" title={c.sub}>{c.sub}</p>
               </div>
-              <span className="font-sans font-semibold text-sm text-[#2B1210]">
-                COSCA_Facilities_Ready_Report.xlsx
-              </span>
-              <span className="px-1.5 py-0.5 bg-[#E6DDD3] text-slate-700 rounded text-xs font-mono">
-                Read-Only cells mapped to Database
+            );
+          })}
+        </section>
+
+        {/* AI INSIGHTS */}
+        <div className="bg-white border border-[#E6DDD3] rounded-xl shadow-sm overflow-hidden">
+          <div className="px-4 py-3.5 bg-[#F5F1EC] border-b border-[#E6DDD3] flex flex-wrap gap-3 items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[#6B1420]" />
+              <span className="font-display font-bold text-xs uppercase tracking-wider text-[#2B1210]">AI Insights</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={aiFocus}
+                onChange={(e) => setAiFocus(e.target.value)}
+                className="text-xs font-mono border border-[#E6DDD3] rounded-lg bg-white px-2 py-2 text-[#2B1210] focus:outline-none focus:border-[#6B1420] cursor-pointer"
+              >
+                {focusOptions.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+              </select>
+              <button
+                onClick={generateInsights}
+                disabled={aiLoading}
+                className="flex items-center gap-1.5 py-2 px-3.5 bg-[#6B1420] text-white font-mono text-xs font-bold rounded-lg hover:bg-[#6B1420]/90 transition-all cursor-pointer shadow-md disabled:opacity-50"
+              >
+                {aiLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                {aiLoading ? "Analyzing…" : aiReport ? "Regenerate" : "Generate Insights"}
+              </button>
+              {aiReport && (
+                <button
+                  onClick={printAiReport}
+                  className="flex items-center gap-1.5 py-2 px-3.5 bg-white border border-[#6B1420]/40 text-[#6B1420] font-mono text-xs font-bold rounded-lg hover:bg-[#6B1420]/10 transition-all cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print / PDF
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="p-4 sm:p-6">
+            {aiError ? (
+              <div className="flex items-center gap-2 text-rose-600 text-sm font-sans">
+                <AlertCircle className="w-4 h-4" /> {aiError}
+              </div>
+            ) : aiLoading ? (
+              <div className="flex items-center gap-3 text-slate-500 text-sm font-mono py-6">
+                <RefreshCw className="w-4 h-4 animate-spin text-[#6B1420]" /> Analyzing job orders…
+              </div>
+            ) : aiReport ? (
+              <MarkdownReport text={aiReport} />
+            ) : (
+              <p className="text-sm text-slate-600 font-sans">
+                Get a plain-language summary of trends, problem areas and recommended actions based on the selected date range.
+                Choose a focus and click <strong>Generate Insights</strong>.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* REQUESTS BY DEPARTMENT */}
+        <div className="bg-white border border-[#E6DDD3] rounded-xl shadow-sm overflow-hidden">
+          <div className="px-4 py-3.5 bg-[#F5F1EC] border-b border-[#E6DDD3] flex flex-wrap gap-3 items-center justify-between">
+            <span className="font-display font-bold text-xs uppercase tracking-wider text-[#2B1210]">
+              Requests by Department
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportDepartmentPDF}
+                disabled={departmentChartData.length === 0}
+                className="flex items-center gap-1.5 py-2 px-3.5 bg-white border border-[#6B1420]/40 text-[#6B1420] font-mono text-xs font-bold rounded-lg hover:bg-[#6B1420]/10 transition-all cursor-pointer disabled:opacity-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export PDF
+              </button>
+              <button
+                onClick={handleExportDepartmentCSV}
+                disabled={departmentChartData.length === 0}
+                className="flex items-center gap-1.5 py-2 px-3.5 bg-[#6B1420] text-white font-mono text-xs font-bold rounded-lg hover:bg-[#6B1420]/90 transition-all cursor-pointer shadow-md disabled:opacity-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export to Excel (CSV)
+              </button>
+            </div>
+          </div>
+          <div className="p-4 sm:p-6">
+            {departmentChartData.length === 0 ? (
+              <p className="text-sm text-slate-600 font-sans">No requests in this date range.</p>
+            ) : (
+              <div className="w-full select-none" style={{ height: Math.max(180, departmentChartData.length * 44 + 50) }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={departmentChartData} layout="vertical" margin={{ left: 10, right: 20, top: 0, bottom: 0 }}>
+                    <XAxis type="number" stroke="#6b7280" tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <YAxis dataKey="name" type="category" stroke="#6b7280" tick={{ fontSize: 11 }} width={220} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="open" name="Open" stackId="a" fill="#8C2331" barSize={18} />
+                    <Bar dataKey="completed" name="Completed" stackId="a" fill="#2f9e6e" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* JOB ORDER TABLE (read-only) */}
+        <div className="bg-white border border-[#E6DDD3] rounded-xl shadow-sm overflow-hidden flex flex-col">
+          <div className="px-4 py-3.5 bg-[#F5F1EC] border-b border-[#E6DDD3] flex flex-wrap gap-3 items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-[#6B1420]" />
+              <span className="font-display font-bold text-xs uppercase tracking-wider text-[#2B1210]">Job Order Report</span>
+              <span className="px-2 py-0.5 bg-[#6B1420]/10 text-[#6B1420] text-xs font-mono rounded-full border border-[#6B1420]/20">
+                {gridData.length} rows
               </span>
             </div>
-
             <div className="flex items-center gap-2.5">
               <button
                 onClick={handleCopyTable}
-                className="flex items-center gap-1.5 py-2 px-3.5 bg-white border border-[#E6DDD3] rounded-lg text-xs font-mono text-[#4A322E] hover:bg-[#F0EAE4] transition-colors cursor-pointer shadow-xs"
+                disabled={gridData.length === 0}
+                className="flex items-center gap-1.5 py-2 px-3.5 bg-white border border-[#E6DDD3] rounded-lg text-xs font-mono text-[#4A322E] hover:bg-[#F0EAE4] transition-colors cursor-pointer disabled:opacity-50"
               >
-                {copiedTable ? <Check className="w-3.5 h-3.5 text-soft-green" /> : <Copy className="w-3.5 h-3.5" />}
-                {copiedTable ? "Copied!" : "Copy Grid Text"}
+                {copiedTable ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedTable ? "Copied!" : "Copy Table"}
               </button>
-
               <button
                 onClick={handleExportCSV}
-                className="flex items-center gap-1.5 py-2 px-3.5 bg-[#6B1420] text-white font-mono text-xs font-bold rounded-lg hover:bg-[#6B1420]/90 transition-all cursor-pointer shadow-md"
+                disabled={gridData.length === 0}
+                className="flex items-center gap-1.5 py-2 px-3.5 bg-[#6B1420] text-white font-mono text-xs font-bold rounded-lg hover:bg-[#6B1420]/90 transition-all cursor-pointer shadow-md disabled:opacity-50"
               >
                 <Download className="w-3.5 h-3.5" />
                 Export to Excel (CSV)
@@ -223,116 +597,57 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
             </div>
           </div>
 
-          {/* Excel Formula / Edit Bar */}
-          <div className="flex items-center bg-white border-b border-[#E6DDD3] p-1.5 gap-2 text-xs font-mono">
-            <div className="bg-[#F0EAE4] border border-[#E6DDD3] px-3 py-1 text-center font-bold text-[#6B1420] min-w-[50px] rounded shadow-inner">
-              {columns[activeCell.col]}{activeCell.row + 1}
-            </div>
-            <div className="text-slate-600 italic px-1 font-serif select-none text-sm font-bold">
-              fx
-            </div>
-            <input
-              type="text"
-              value={editValue}
-              onChange={handleCellValueChange}
-              className="flex-1 bg-[#F5F1EC] border border-[#E6DDD3] rounded px-3 py-1 text-[#2B1210] focus:outline-none focus:border-[#6B1420] transition-colors font-sans shadow-inner"
-              placeholder="Edit selected cell value directly. Edits persist locally in-grid."
-            />
-          </div>
-
-          {/* Main Spreadsheet Grid viewport */}
-          <div className="overflow-x-auto max-h-[350px] overflow-y-auto">
-            <table className="min-w-full border-collapse border-[#E6DDD3] text-xs font-sans select-none">
-              <thead className="bg-[#F0EAE4] sticky top-0 z-10">
-                <tr>
-                  <th className="w-10 bg-[#E6DDD3] border border-[#DDD2C8] text-center text-sm text-slate-700 font-mono py-1"></th>
-                  {columns.map((col, idx) => (
-                    <th key={idx} className="bg-[#E6DDD3] border border-[#DDD2C8] text-center font-mono py-1 text-slate-600 min-w-[150px]">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-                <tr className="bg-[#F0EAE4]/80 text-left">
-                  <th className="bg-[#E6DDD3] border border-[#DDD2C8] text-center text-sm text-slate-600 font-mono py-1.5"></th>
-                  {columnHeaders.map((header, idx) => (
-                    <th key={idx} className="border border-[#DDD2C8] px-3 py-1.5 font-bold uppercase text-xs tracking-wider text-slate-700">
-                      {header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-white">
-                {gridData.map((row, rIdx) => (
-                  <tr key={rIdx} className="hover:bg-[#F5F1EC]/50 transition-colors">
-                    <td className="bg-[#E6DDD3] border border-[#DDD2C8] text-center font-mono text-sm text-slate-700 font-bold select-none h-9">
-                      {rIdx + 1}
-                    </td>
-                    {row.map((cell, cIdx) => {
-                      const isActive = activeCell.row === rIdx && activeCell.col === cIdx;
-                      let badgeClass = "";
-                      if (cIdx === 9) {
-                        badgeClass =
-                          cell === "Completed" ? "bg-soft-green/10 text-soft-green font-bold px-2 py-0.5 rounded border border-soft-green/20" :
-                          cell === "In Progress" ? "bg-cyan-accent/10 text-cyan-accent font-bold px-2 py-0.5 rounded border border-cyan-accent/20" :
-                          "bg-[#6B1420]/10 text-[#6B1420] font-bold px-2 py-0.5 rounded border border-[#6B1420]/20";
-                      }
-                      return (
-                        <td
-                          key={cIdx}
-                          onClick={() => handleCellClick(rIdx, cIdx)}
-                          className={`border border-[#E6DDD3] px-3 py-2 cursor-pointer relative font-sans truncate max-w-[220px] ${isActive
-                            ? "outline-2 outline-[#6B1420] outline-offset-[-2px] bg-[#6B1420]/5"
-                            : "text-[#4A322E]"
-                          }`}
-                        >
+          <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+            {gridData.length === 0 ? (
+              <p className="text-sm text-slate-500 font-sans py-12 text-center">No job orders in this date range.</p>
+            ) : (
+              <table className="min-w-full border-collapse text-xs font-sans">
+                <thead className="bg-[#F0EAE4] sticky top-0 z-10">
+                  <tr>
+                    {columnHeaders.map((h) => (
+                      <th key={h} className="border-b border-[#E6DDD3] px-3 py-2.5 text-left font-bold uppercase tracking-wider text-slate-600 text-[10px] whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#F0EAE4]">
+                  {gridData.map((row, rIdx) => (
+                    <tr key={rIdx} className="hover:bg-[#F5F1EC]/60 transition-colors">
+                      {row.map((cell, cIdx) => (
+                        <td key={cIdx} className="px-3 py-2.5 text-[#4A322E] max-w-[240px] truncate" title={cell}>
                           {cIdx === 9 ? (
-                            <span className={badgeClass}>{cell}</span>
+                            <span className={
+                              cell === "Completed" ? "bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded border border-emerald-200" :
+                              cell === "In Progress" ? "bg-cyan-50 text-cyan-700 font-bold px-2 py-0.5 rounded border border-cyan-200" :
+                              "bg-[#6B1420]/10 text-[#6B1420] font-bold px-2 py-0.5 rounded border border-[#6B1420]/20"
+                            }>{cell}</span>
                           ) : cIdx === 8 ? (
-                            <span className={`font-mono text-xs ${
+                            <span className={`font-mono ${
                               cell.startsWith("₱") && !cell.includes("No Funds")
-                                ? "font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200"
-                                : "text-slate-500 font-normal italic"
-                            }`}>
-                              {cell}
-                            </span>
+                                ? "font-bold text-emerald-700"
+                                : "text-slate-500 italic"
+                            }`}>{cell}</span>
                           ) : cIdx === 6 ? (
                             <span className="font-mono font-bold text-[#2B1210]">{cell}</span>
+                          ) : cIdx === 0 ? (
+                            <span className="font-mono font-bold text-[#6B1420]">{cell}</span>
                           ) : (
                             cell
                           )}
-                          {isActive && (
-                            <div className="absolute right-0 bottom-0 w-1.5 h-1.5 bg-[#6B1420] pointer-events-none" />
-                          )}
                         </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
 
-          {/* Sheet tabs footer */}
-          <div className="bg-[#F0EAE4] border-t border-[#E6DDD3] px-4 py-2 flex items-center justify-between text-sm font-sans">
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-600 select-none">Sheets:</span>
-              <div className="flex bg-white border border-[#E6DDD3] px-3.5 py-1 text-[#6B1420] font-bold rounded shadow-xs relative select-none cursor-default">
-                <FileSpreadsheet className="w-3.5 h-3.5 text-[#6B1420] mr-1.5 inline" />
-                COSCA_Tickets_Report
-                <div className="absolute top-0 left-0 right-0 h-0.5 bg-[#6B1420]" />
-              </div>
-            </div>
-            <div className="font-mono text-slate-600 text-xs flex flex-wrap items-center gap-3">
-              <span>Ready</span>
-              <span>•</span>
-              <span>Total Approved: <strong className="text-emerald-700 font-bold">{formatPeso(tickets.reduce((acc, t) => acc + (t.approvedAmount ?? 0), 0))}</strong></span>
-              <span>•</span>
-              <span>Total Priority Sum = {tickets.reduce((acc, t) => acc + t.priorityScore, 0)}</span>
-            </div>
+          <div className="bg-[#F0EAE4] border-t border-[#E6DDD3] px-4 py-2 font-mono text-slate-600 text-xs flex flex-wrap items-center gap-3">
+            <span>Total Approved: <strong className="text-emerald-700 font-bold">{formatPeso(stats.totalApproved)}</strong></span>
           </div>
         </div>
 
-        {/* SECTION 2: APPROVAL AUDIT LOG */}
+        {/* APPROVAL AUDIT LOG */}
         <div className="bg-white border border-[#E6DDD3] rounded-xl shadow-sm overflow-hidden">
           {/* Header */}
           <div className="px-4 py-3.5 bg-[#F5F1EC] border-b border-[#E6DDD3] flex flex-wrap gap-3 items-center justify-between">
