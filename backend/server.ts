@@ -2086,14 +2086,22 @@ app.get("/api/job-orders/:id/staff-candidates", authenticateToken, requireRole("
 
     const limit = await getWorkerTaskLimit();
     const result = await pool.query(
-      `SELECT s.id, s.name, s.specialty, COALESCE(ss.proficiency_level, 0) as proficiency_level,
-              COALESCE(ss.years_experience, 0) as years_experience,
+      `SELECT s.id, s.name, s.specialty,
+              COALESCE(matching_skills.best_proficiency, 0) AS proficiency_level,
+              COALESCE(matching_skills.best_experience, 0) AS years_experience,
               COALESCE(active.active_count, 0) AS active_count
        FROM staff s
-       LEFT JOIN staff_skills ss ON ss.staff_id = s.id
-       LEFT JOIN skills sk ON sk.id = ss.skill_id
-       LEFT JOIN job_type_skill_requirements r ON r.skill_id = sk.id
-       LEFT JOIN job_types jt ON jt.id = r.job_type_id AND jt.name = $1
+       LEFT JOIN (
+         SELECT ss.staff_id,
+                MAX(ss.proficiency_level) AS best_proficiency,
+                MAX(ss.years_experience) AS best_experience
+         FROM staff_skills ss
+         JOIN skills sk ON sk.id = ss.skill_id
+         LEFT JOIN job_type_skill_requirements r ON r.skill_id = sk.id
+         LEFT JOIN job_types jt ON jt.id = r.job_type_id
+         WHERE jt.name = $1 OR sk.name = $1
+         GROUP BY ss.staff_id
+       ) matching_skills ON matching_skills.staff_id = s.id
        LEFT JOIN (
          SELECT jos.staff_id, COUNT(*) AS active_count
          FROM job_order_staff jos
@@ -2101,8 +2109,7 @@ app.get("/api/job-orders/:id/staff-candidates", authenticateToken, requireRole("
          WHERE jo.status IN ('Pending', 'In Progress')
          GROUP BY jos.staff_id
        ) active ON active.staff_id = s.id
-       WHERE s.user_id IS NOT NULL
-       ORDER BY proficiency_level DESC, years_experience DESC, active_count ASC`,
+       WHERE s.user_id IS NOT NULL`,
       [ticket.job_type]
     );
 
@@ -2138,6 +2145,13 @@ app.get("/api/job-orders/:id/staff-candidates", authenticateToken, requireRole("
         isAssigned: Boolean(currentAssignment),
         isLead: Boolean(currentAssignment?.is_lead) || row.id === ticket.assigned_staff_id,
       };
+    });
+
+    candidates.sort((a, b) => {
+      if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+      if (a.isAtCapacity !== b.isAtCapacity) return a.isAtCapacity ? 1 : -1;
+      if (a.activeTaskCount !== b.activeTaskCount) return a.activeTaskCount - b.activeTaskCount;
+      return a.name.localeCompare(b.name);
     });
 
     res.json({
@@ -2223,14 +2237,22 @@ app.post("/api/job-orders/override", authenticateToken, requireRole("PPO"), asyn
 
       if (uniqueIds.length > 0) {
         const staffSkillResult = await pool.query(
-          `SELECT s.id, s.name, COALESCE(ss.proficiency_level, 0) as proficiency_level,
-                  COALESCE(ss.years_experience, 0) as years_experience,
-                  COALESCE(active.active_count, 0) as active_count
+          `SELECT s.id, s.name,
+                  COALESCE(matching_skills.best_proficiency, 0) AS proficiency_level,
+                  COALESCE(matching_skills.best_experience, 0) AS years_experience,
+                  COALESCE(active.active_count, 0) AS active_count
            FROM staff s
-           LEFT JOIN staff_skills ss ON ss.staff_id = s.id
-           LEFT JOIN skills sk ON sk.id = ss.skill_id
-           LEFT JOIN job_type_skill_requirements r ON r.skill_id = sk.id
-           LEFT JOIN job_types jt ON jt.id = r.job_type_id AND jt.name = $2
+           LEFT JOIN (
+             SELECT ss.staff_id,
+                    MAX(ss.proficiency_level) AS best_proficiency,
+                    MAX(ss.years_experience) AS best_experience
+             FROM staff_skills ss
+             JOIN skills sk ON sk.id = ss.skill_id
+             LEFT JOIN job_type_skill_requirements r ON r.skill_id = sk.id
+             LEFT JOIN job_types jt ON jt.id = r.job_type_id
+             WHERE jt.name = $2 OR sk.name = $2
+             GROUP BY ss.staff_id
+           ) matching_skills ON matching_skills.staff_id = s.id
            LEFT JOIN (
              SELECT jos.staff_id, COUNT(*) AS active_count
              FROM job_order_staff jos

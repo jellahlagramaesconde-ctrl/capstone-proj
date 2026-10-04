@@ -212,7 +212,13 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.candidates)) {
-          setCandidates(data.candidates);
+          const seen = new Set<number>();
+          const deduped = data.candidates.filter((c: StaffCandidate) => {
+            if (!c.id || seen.has(c.id)) return false;
+            seen.add(c.id);
+            return true;
+          });
+          setCandidates(deduped);
         }
       }
     } catch (err) {

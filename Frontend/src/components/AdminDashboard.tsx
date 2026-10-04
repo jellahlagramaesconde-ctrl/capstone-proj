@@ -210,7 +210,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.candidates)) {
-          setOverrideCandidates(data.candidates);
+          const seen = new Set<number>();
+          const deduped = data.candidates.filter((c: StaffCandidate) => {
+            if (!c.id || seen.has(c.id)) return false;
+            seen.add(c.id);
+            return true;
+          });
+          setOverrideCandidates(deduped);
         }
       }
     } catch (err) {
