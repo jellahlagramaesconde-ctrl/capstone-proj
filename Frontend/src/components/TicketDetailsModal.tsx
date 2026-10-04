@@ -429,24 +429,14 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                 </h3>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="p-1.5 rounded-full text-white/75 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                title="Print Job Ticket"
-              >
-                <Printer className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-1.5 rounded-full text-white/75 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                title="Close sheet"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-full text-white/75 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              title="Close sheet"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
           {/* Scrollable Form Body */}
