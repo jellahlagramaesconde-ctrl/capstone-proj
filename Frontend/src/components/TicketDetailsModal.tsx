@@ -1342,44 +1342,78 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
           </div>
 
           {/* Footer Actions Panel */}
-          <div className="p-5 border-t border-[#E6DDD3] bg-[#F5F1EC] flex flex-col gap-3">
+          <div className="p-4 sm:p-5 border-t border-[#E6DDD3] bg-[#FAF7F5] flex flex-col gap-3">
 
-            {/* Row 1: Secondary actions — Print & Delete */}
-            <div className="flex items-center justify-between">
-              <button
-                onClick={handlePrint}
-                className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-white border border-[#E6DDD3] hover:bg-[#F0EAE4] text-xs font-mono text-[#4A322E] transition-colors cursor-pointer shadow-xs"
-              >
-                <Printer className="w-4 h-4" />
-                Print Job Ticket
-              </button>
-
-              {isAdmin && onDelete && (
+            {/* Row 1: Utilities (Print/Delete) on the left, PPO parameters on the right */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => {
-                    if (window.confirm(`Are you sure you want to permanently delete job order ${ticket.id}? This action cannot be undone.`)) {
-                      onDelete(ticket.id);
-                    }
-                  }}
-                  className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-white border border-red-200 text-red-500 font-mono text-xs hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-all cursor-pointer"
+                  type="button"
+                  onClick={handlePrint}
+                  className="flex items-center gap-1.5 h-8.5 px-3 rounded-lg bg-white border border-[#DDD2C8] hover:bg-[#F5F1EC] text-xs font-mono font-medium text-[#4A322E] transition-colors cursor-pointer shadow-2xs"
+                  title="Print Job Ticket"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Request
+                  <Printer className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Print Job Ticket</span>
                 </button>
+
+                {isAdmin && onDelete && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Are you sure you want to permanently delete job order ${ticket.id}? This action cannot be undone.`)) {
+                        onDelete(ticket.id);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 h-8.5 px-3 rounded-lg bg-white border border-red-200 text-red-600 font-mono text-xs hover:bg-red-50 hover:border-red-300 transition-colors cursor-pointer shadow-2xs"
+                    title="Delete Request"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Request</span>
+                  </button>
+                )}
+              </div>
+
+              {/* PPO Quick Settings (Emergency & Cost Estimate) */}
+              {isAdmin && !ticket.ppoApproved && (
+                <div className="flex items-center gap-2">
+                  {!ticket.isEmergency && (
+                    <label className="flex items-center gap-1.5 text-xs font-mono text-amber-900 bg-amber-500/10 border border-amber-500/25 rounded-lg px-2.5 h-8.5 cursor-pointer select-none hover:bg-amber-500/15 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={modalEmergencyOverride}
+                        onChange={(e) => setModalEmergencyOverride(e.target.checked)}
+                        className="accent-amber-600 cursor-pointer"
+                      />
+                      <span>Treat as emergency</span>
+                    </label>
+                  )}
+                  <div className="flex items-center bg-white border border-[#DDD2C8] rounded-lg px-2.5 h-8.5 shadow-2xs focus-within:border-[#7C1D2D] transition-colors">
+                    <span className="text-xs text-slate-500 font-mono mr-1 select-none font-semibold">Est ₱</span>
+                    <input
+                      type="number"
+                      placeholder="0.00"
+                      className="w-20 bg-transparent text-[#2B1210] text-xs font-mono font-medium focus:outline-none"
+                      value={modalPpoCost}
+                      onChange={(e) => setModalPpoCost(e.target.value)}
+                    />
+                  </div>
+                </div>
               )}
             </div>
 
-            {/* Row 2: Primary workflow actions */}
+            {/* Row 2: Decisive Actions */}
             {isAdmin && (
               <>
                 {/* School Head (President) Endorsement */}
                 {ticket.ppoApproved && !ticket.schoolHeadApproved && onSchoolHeadApprove && (
                   <button
+                    type="button"
                     onClick={() => {
                       onSchoolHeadApprove(ticket.id);
                       onClose();
                     }}
-                    className="flex items-center justify-center gap-1.5 h-10 w-full rounded-lg bg-red-600 hover:bg-red-700 text-white font-mono font-bold text-xs transition-all cursor-pointer shadow-sm"
+                    className="flex items-center justify-center gap-1.5 h-10 w-full rounded-lg bg-red-600 hover:bg-red-700 text-white font-mono font-bold text-xs transition-all cursor-pointer shadow-sm active:scale-[0.99]"
                   >
                     <CheckCircle className="w-4 h-4" />
                     Endorse as President
@@ -1388,53 +1422,31 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
 
                 {/* PPO Verify & Approve */}
                 {!ticket.ppoApproved && (
-                  <div className="flex flex-col gap-2.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {!ticket.isEmergency && (
-                        <label className="flex items-center gap-1.5 text-xs font-mono text-safety-amber bg-safety-amber/10 border border-safety-amber/20 rounded-lg px-3 h-9 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={modalEmergencyOverride}
-                            onChange={(e) => setModalEmergencyOverride(e.target.checked)}
-                            className="accent-safety-amber cursor-pointer"
-                          />
-                          Treat as emergency
-                        </label>
-                      )}
-                      <div className="flex items-center bg-white border border-[#E6DDD3] rounded-lg px-2.5 h-9">
-                        <span className="text-sm text-slate-500 font-mono mr-1">Est ₱</span>
-                        <input
-                          type="number"
-                          placeholder="Cost"
-                          className="w-16 bg-transparent text-[#2B1210] text-xs font-mono focus:outline-none"
-                          value={modalPpoCost}
-                          onChange={(e) => setModalPpoCost(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          const est = modalPpoCost.trim() !== "" ? Number(modalPpoCost) : undefined;
-                          onApprove?.(ticket.id, est, ticket.isEmergency || modalEmergencyOverride);
-                          onClose();
-                        }}
-                        className="flex items-center justify-center gap-1.5 h-10 flex-1 rounded-lg bg-[#6B1420] text-white font-mono font-bold text-xs hover:bg-[#7D1A28] transition-all cursor-pointer shadow-sm"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                        Verify &amp; Approve (PPO)
-                      </button>
-                      <button
-                        onClick={() => {
-                          onOverride?.(ticket.id);
-                          onClose();
-                        }}
-                        className="flex items-center justify-center gap-1.5 h-10 px-4 rounded-lg bg-safety-amber/10 border border-safety-amber/20 hover:bg-safety-amber/20 font-mono font-bold text-xs text-safety-amber transition-all cursor-pointer"
-                      >
-                        <RefreshCw className="w-4 h-4" />
-                        Override
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-2.5 w-full">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const est = modalPpoCost.trim() !== "" ? Number(modalPpoCost) : undefined;
+                        onApprove?.(ticket.id, est, ticket.isEmergency || modalEmergencyOverride);
+                        onClose();
+                      }}
+                      className="flex-1 flex items-center justify-center gap-2 h-10 px-5 rounded-lg bg-[#7C1D2D] hover:bg-[#661623] text-white font-mono font-bold text-xs transition-all cursor-pointer shadow-sm active:scale-[0.99]"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Verify &amp; Approve (PPO)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onOverride?.(ticket.id);
+                        onClose();
+                      }}
+                      className="shrink-0 flex items-center justify-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-[#DDD2C8] hover:bg-[#FAF7F5] font-mono font-bold text-xs text-[#7C1D2D] transition-all cursor-pointer shadow-2xs active:scale-[0.99]"
+                      title="Override assigned staff, priority, or details"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Override</span>
+                    </button>
                   </div>
                 )}
               </>
