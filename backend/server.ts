@@ -2645,10 +2645,10 @@ app.post("/api/job-orders/ppo-approve", authenticateToken, requireRole("PPO"), a
     const updateResult = await pool.query(
       `UPDATE job_orders
        SET ppo_approved = TRUE,
-           requires_funds = $2,
+           requires_funds = $2::boolean,
            is_emergency = CASE WHEN $3 THEN TRUE ELSE is_emergency END,
            estimated_cost = COALESCE($4::numeric, estimated_cost),
-           status = CASE WHEN $2 = FALSE THEN 'In Progress' ELSE status END
+           status = CASE WHEN $2::boolean = FALSE THEN 'In Progress' ELSE status END
        WHERE id = $1 RETURNING *`,
       [id, fundsRequired, Boolean(emergencyOverride), estimatedCost ?? null]
     );
@@ -2895,8 +2895,8 @@ app.put("/api/job-orders/:id/budget-items", authenticateToken, requireRole("PPO"
 
     const updateResult = await client.query(
       `UPDATE job_orders
-       SET estimated_cost = $2,
-           requires_funds = CASE WHEN $2 = 0 THEN FALSE ELSE TRUE END
+       SET estimated_cost = $2::numeric,
+           requires_funds = CASE WHEN $2::numeric = 0 THEN FALSE ELSE TRUE END
        WHERE id = $1 RETURNING *`,
       [id, total]
     );
