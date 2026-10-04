@@ -950,16 +950,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 {/* Add Matched Maintenance Staff */}
-                <div className="bg-[#FAF7F5] border border-[#E6DDD3] rounded-lg p-2.5 space-y-1.5">
+                <div className="bg-[#FAF7F5] border border-[#E6DDD3] rounded-lg p-2.5 space-y-1.5 w-full max-w-full overflow-hidden">
                   <span className="text-[11px] font-mono font-bold uppercase text-slate-700 flex items-center gap-1">
                     <UserPlus className="w-3.5 h-3.5 text-[#7C1D2D]" />
                     Add Matched Maintenance Staff
                   </span>
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2 w-full">
                     <select
                       value={selectedOverrideAddStaffId}
                       onChange={(e) => setSelectedOverrideAddStaffId(e.target.value)}
-                      className="flex-1 bg-white border border-[#DDD2C8] rounded-lg p-2 text-xs text-[#2B1210] focus:outline-none focus:border-[#7C1D2D] font-sans"
+                      className="flex-1 min-w-0 w-full bg-white border border-[#DDD2C8] rounded-lg p-2 text-xs text-[#2B1210] focus:outline-none focus:border-[#7C1D2D] font-sans truncate"
                     >
                       <option value="">— Select technician to add —</option>
                       {overrideCandidates
@@ -981,7 +981,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       type="button"
                       disabled={!selectedOverrideAddStaffId}
                       onClick={handleAddStaffToOverrideTeam}
-                      className="px-3 py-1.5 bg-[#7C1D2D] hover:bg-[#7C1D2D]/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                      className="shrink-0 whitespace-nowrap px-3 py-2 bg-[#7C1D2D] hover:bg-[#7C1D2D]/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Add

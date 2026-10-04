@@ -1051,16 +1051,16 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                       </div>
 
                       {/* Add Matched Maintenance Staff Picker */}
-                      <div className="bg-white border border-[#E6DDD3] rounded-lg p-3 space-y-2 mt-2">
+                      <div className="bg-white border border-[#E6DDD3] rounded-lg p-3 space-y-2 mt-2 w-full max-w-full overflow-hidden">
                         <span className="text-xs font-mono font-bold uppercase text-slate-700 flex items-center gap-1.5">
                           <UserPlus className="w-3.5 h-3.5 text-[#7C1D2D]" />
                           Add Matched Maintenance Staff to Team
                         </span>
-                        <div className="flex flex-col sm:flex-row gap-2">
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full">
                           <select
                             value={selectedAddStaffId}
                             onChange={(e) => setSelectedAddStaffId(e.target.value)}
-                            className="flex-1 bg-[#FAF7F5] border border-[#DDD2C8] rounded-lg p-2 text-xs text-[#2B1210] focus:outline-none focus:border-[#7C1D2D] font-sans"
+                            className="flex-1 min-w-0 w-full bg-[#FAF7F5] border border-[#DDD2C8] rounded-lg p-2 text-xs text-[#2B1210] focus:outline-none focus:border-[#7C1D2D] font-sans truncate"
                           >
                             <option value="">— Select a matched technician to add —</option>
                             {candidates
@@ -1082,7 +1082,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                             type="button"
                             disabled={!selectedAddStaffId}
                             onClick={handleAddStaffToTeam}
-                            className="px-3.5 py-2 bg-[#7C1D2D] hover:bg-[#7C1D2D]/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                            className="shrink-0 whitespace-nowrap px-4 py-2 bg-[#7C1D2D] hover:bg-[#7C1D2D]/90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-mono font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                           >
                             <Plus className="w-3.5 h-3.5" />
                             Add Staff
