@@ -75,6 +75,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [filterType, setFilterType] = useState<string>("All");
   const [activeSubTab, setActiveSubTab] = useState<"president" | "ppo" | "finance" | "all">("ppo");
   const [selectedTicket, setSelectedTicket] = useState<JobOrder | null>(null);
+  const [recurringGroupKey, setRecurringGroupKey] = useState<string | null>(null);
 
   // Local PPO Cost Input State
   const [ppoCosts, setPpoCosts] = useState<Record<string, string>>({});
@@ -488,7 +489,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="space-y-4">
               {filteredAndSortedTickets.length > 0 ? (
                 filteredAndSortedTickets.map((ticket) => (
-                  <div key={ticket.id} className={`relative group p-2 rounded-xl transition-all ${ticket.isEmergency ? "bg-red-50/90 border-2 border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.15),0_0_16px_rgba(239,68,68,0.2)]" : "bg-[#F5F1EC]/50 border border-[#F0EAE4]"}`}>
+                  <div key={ticket.id} className={`relative group p-2 rounded-xl transition-all ${ticket.isEmergency && ticket.status !== "Completed" ? "bg-red-50/90 border-2 border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.15),0_0_16px_rgba(239,68,68,0.2)]" : "bg-[#F5F1EC]/50 border border-[#F0EAE4]"}`}>
                     <TicketStub
                       ticket={ticket}
                       isAdmin={true}
@@ -511,9 +512,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {/* Row 1: Timestamp + Emergency badge */}
                       <div className="flex items-center gap-2 text-xs text-slate-500 font-mono">
                         {ticket.isEmergency && (
-                          <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-red-500 text-white rounded-full font-mono uppercase tracking-wider">
-                            🚨 Emergency
-                          </span>
+                          ticket.status === "Completed" ? (
+                            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                              Emergency
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 bg-red-500 text-white rounded-full font-mono uppercase tracking-wider">
+                              🚨 Emergency
+                            </span>
+                          )
                         )}
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
@@ -673,7 +680,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 {recurringIssues.map((g) => (
                   <div
                     key={`${g.office}||${g.jobType}`}
-                    className="flex items-start gap-2.5 p-2.5 bg-red-50/60 border border-red-100 rounded-lg"
+                    role="button"
+                    tabIndex={0}
+                    title="Click to see the exact recurring requests"
+                    onClick={() => setRecurringGroupKey(`${g.office}||${g.jobType}`)}
+                    onKeyDown={(e) => { if (e.key === "Enter") setRecurringGroupKey(`${g.office}||${g.jobType}`); }}
+                    className="flex items-start gap-2.5 p-2.5 bg-red-50/60 border border-red-100 rounded-lg cursor-pointer hover:bg-red-100/70 hover:border-red-300 transition-colors"
                   >
                     {/* Count badge */}
                     <div className="w-8 h-8 rounded bg-red-500 text-white font-mono font-bold text-sm flex items-center justify-center shrink-0">
@@ -708,8 +720,73 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               {/* Footer note */}
               <p className="text-[10px] text-slate-400 font-sans mt-3 pt-2 border-t border-red-100 leading-relaxed">
-                ⚠️ Recurring problems may indicate a systemic issue. Consider a permanent repair or escalation.
+                ⚠️ Recurring problems may indicate a systemic issue. Consider a permanent repair or escalation. Click an item to see the requests.
               </p>
+
+              {/* Recurring group detail modal */}
+              {(() => {
+                const group = recurringIssues.find((g) => `${g.office}||${g.jobType}` === recurringGroupKey);
+                if (!group) return null;
+                const sorted = [...group.tickets].sort(
+                  (a, b) => new Date(a.dateSubmitted).getTime() - new Date(b.dateSubmitted).getTime()
+                );
+                return (
+                  <div
+                    className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+                    onClick={() => setRecurringGroupKey(null)}
+                  >
+                    <div
+                      className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-start justify-between gap-3 p-4 border-b border-red-100">
+                        <div className="min-w-0">
+                          <h4 className="font-display font-bold text-sm text-red-700">
+                            {group.count} unresolved {group.jobType} requests
+                          </h4>
+                          <p className="text-xs text-slate-600 mt-0.5">{group.office}</p>
+                        </div>
+                        <button
+                          onClick={() => setRecurringGroupKey(null)}
+                          className="p-1 rounded hover:bg-slate-100 text-slate-500 cursor-pointer"
+                          aria-label="Close"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="p-4 overflow-y-auto space-y-2.5">
+                        {sorted.map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => {
+                              setRecurringGroupKey(null);
+                              setSelectedTicket(t);
+                              onTicketClick?.(t.id);
+                            }}
+                            className="w-full text-left p-3 border border-[#E6DDD3] rounded-lg hover:bg-[#F5F1EC] transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="font-mono text-xs font-bold text-[#6B1420]">{t.id}</span>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                                {t.status}{t.status === "Pending" ? (t.ppoApproved ? (t.schoolHeadApproved ? " · Finance" : " · President") : " · PPO") : ""}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-800 leading-relaxed line-clamp-3">{t.description}</p>
+                            <p className="text-[10px] text-slate-500 font-mono mt-1.5">
+                              Filed {new Date(t.dateSubmitted).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                              {" · "}Assigned: {t.assignedStaff || "—"}
+                              {t.isEmergency ? " · Emergency" : ""}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-slate-500 p-3 border-t border-slate-100">
+                        Same office and same issue type reported {group.count} times and still unresolved. Consider a permanent fix instead of repeated repairs.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 

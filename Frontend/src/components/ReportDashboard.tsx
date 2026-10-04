@@ -353,7 +353,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
       })
       .join("");
     openPrintWindow(
-      "COSCA AI Insights",
+      "COSCA Smart Insights",
       `<h1>COSCA Facilities Insights</h1><p class="meta">${escHtml(rangeMeta.label)} · Generated ${new Date().toLocaleString()}</p>${body}`
     );
   };
@@ -473,7 +473,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
           <div className="px-4 py-3.5 bg-[#F5F1EC] border-b border-[#E6DDD3] flex flex-wrap gap-3 items-center justify-between">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-[#6B1420]" />
-              <span className="font-display font-bold text-xs uppercase tracking-wider text-[#2B1210]">AI Insights</span>
+              <span className="font-display font-bold text-xs uppercase tracking-wider text-[#2B1210]">Smart Insights</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <select
@@ -489,7 +489,7 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
                 className="flex items-center gap-1.5 py-2 px-3.5 bg-[#6B1420] text-white font-mono text-xs font-bold rounded-lg hover:bg-[#6B1420]/90 transition-all cursor-pointer shadow-md disabled:opacity-50"
               >
                 {aiLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                {aiLoading ? "Analyzing…" : aiReport ? "Regenerate" : "Generate Insights"}
+                {aiLoading ? "Analyzing…" : aiReport ? "Refresh" : "Generate Insights"}
               </button>
               {aiReport && (
                 <button

@@ -2432,7 +2432,7 @@ app.patch("/api/job-orders/:id/extend-deadline", authenticateToken, requireRole(
     );
     await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
       `n_${Date.now()}_dl_ext`,
-      `Deadline for ${ticketId} extended by PPO (${req.user?.fullName || req.user?.username}) by ${totalHours}h. Reason: ${String(reason).trim()}`,
+      `Deadline for ${ticketId} extended by PPO (${req.user?.fullName || req.user?.username}) by ${Math.round((newDeadline.getTime() - currentDeadline.getTime()) / 3600000)}h. Reason: ${String(reason).trim()}`,
       ticketId,
     ]);
     await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
@@ -3023,51 +3023,86 @@ app.post("/api/reports/analyze", authenticateToken, requireRole("PPO"), async (r
     else if (promptType === "safety") analysisFocus = "Safety Risks, Urgency Levels, and Operational Impact Vulnerability Audit";
     else if (promptType === "balancing") analysisFocus = "Staff Specialty Match Accuracy, Workload Balancing, and Maintenance Speed Insights";
 
-    if (!ai) {
-      const pending = jobOrders.filter((j) => j.status === "Pending").length;
-      const inProgress = jobOrders.filter((j) => j.status === "In Progress").length;
-      const completed = jobOrders.filter((j) => j.status === "Completed").length;
-      const critical = jobOrders.filter((j) => j.priorityScore > 75).map((t) => `${t.id} - ${t.office}`).join(", ") || "No critical backlog items detected.";
+    // Rule-based report: computed purely from the job order data (no external AI).
+    const total = jobOrders.length;
+    const open = jobOrders.filter((j: any) => j.status !== "Completed");
+    const pending = jobOrders.filter((j: any) => j.status === "Pending").length;
+    const inProgress = jobOrders.filter((j: any) => j.status === "In Progress").length;
+    const completed = jobOrders.filter((j: any) => j.status === "Completed").length;
+    const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
+    const countBy = (list: any[], keyFn: (j: any) => string): [string, number][] => {
+      const m: Record<string, number> = {};
+      list.forEach((j) => { const k = keyFn(j) || "Unassigned"; m[k] = (m[k] || 0) + 1; });
+      return Object.entries(m).sort((a, b) => b[1] - a[1]);
+    };
+    const critical = open.filter((j: any) => j.priorityScore > 75);
+    const emergencies = open.filter((j: any) => j.isEmergency);
+    const byOffice = countBy(open, (j) => j.office);
+    const byType = countBy(open, (j) => j.jobType);
+    const byStaff = countBy(open.filter((j: any) => j.assignedStaff && j.assignedStaff !== "Outsource"), (j) => j.assignedStaff);
+    const outsourced = open.filter((j: any) => j.assignedStaff === "Outsource").length;
+    const recurring = countBy(open, (j) => `${j.office} — ${j.jobType}`).filter(([, c]) => c >= 3);
+    const list = (rows: [string, number][], n = 5) =>
+      rows.slice(0, n).map(([k, c]) => `- **${k}**: ${c} open`).join("\n") || "- None";
+    const ids = (rows: any[], n = 8) =>
+      rows.slice(0, n).map((j) => `- ${j.id} — ${j.office} (${j.jobType}, score ${j.priorityScore})`).join("\n") || "- None";
 
-      return res.json({
-        report: `## ${analysisFocus} (Local Fallback Analysis)
+    const lines: string[] = [];
+    lines.push(`## ${analysisFocus}`);
+    lines.push("");
+    lines.push("### Summary");
+    lines.push(`- **Total requests**: ${total}`);
+    lines.push(`- **Completed**: ${completed} (${pct(completed, total)}%)`);
+    lines.push(`- **In progress**: ${inProgress} · **Pending**: ${pending}`);
+    lines.push(`- **Open backlog**: ${open.length}`);
+    lines.push("");
 
-*Note: The intelligence core is currently running in fallback mode because no active Gemini API key is configured.*
-
-- **Total Job Tickets**: ${jobOrders.length}
-- **Pending/Backlog**: ${pending} tickets
-- **Currently In Progress**: ${inProgress} tickets
-- **Fully Resolved**: ${completed} tickets
-- **Critical High Priority Backlog (Priority Score > 75)**: ${critical}`,
-      });
+    if (!promptType || promptType === "general") {
+      lines.push("### Busiest offices (open requests)");
+      lines.push(list(byOffice));
+      lines.push("");
+      lines.push("### Most common issue types (open)");
+      lines.push(list(byType));
+      lines.push("");
+      lines.push("### Recurring problems (3+ open of the same type per office)");
+      lines.push(list(recurring));
+    } else if (promptType === "bottlenecks") {
+      lines.push("### Workload per technician (open requests)");
+      lines.push(list(byStaff, 10));
+      lines.push("");
+      lines.push(`- **Suggested for outsourcing**: ${outsourced} open request(s)`);
+      lines.push(`- **Awaiting PPO approval**: ${jobOrders.filter((j: any) => !j.ppoApproved && j.status !== "Completed").length}`);
+    } else if (promptType === "safety") {
+      lines.push(`### Critical backlog (priority score above 75): ${critical.length}`);
+      lines.push(ids(critical));
+      lines.push("");
+      lines.push(`### Open emergency requests: ${emergencies.length}`);
+      lines.push(ids(emergencies));
+    } else if (promptType === "balancing") {
+      lines.push("### Technician load distribution (open)");
+      lines.push(list(byStaff, 10));
+      if (byStaff.length > 1) {
+        const [topName, topCount] = byStaff[0];
+        const [lowName, lowCount] = byStaff[byStaff.length - 1];
+        lines.push("");
+        lines.push(`- Heaviest load: **${topName}** (${topCount}); lightest: **${lowName}** (${lowCount}).`);
+      }
     }
 
-    const ticketsSummary = jobOrders.map((t) => ({
-      id: t.id, office: t.office, description: t.description, jobType: t.jobType,
-      safetyRisk: t.safetyRisk, operationalImpact: t.operationalImpact, urgency: t.urgency,
-      peopleAffected: t.peopleAffected, priorityScore: t.priorityScore, status: t.status, assignedStaff: t.assignedStaff,
-    }));
+    lines.push("");
+    lines.push("### Recommended actions");
+    const recs: string[] = [];
+    if (critical.length > 0) recs.push(`Address the ${critical.length} critical-priority request(s) first.`);
+    if (emergencies.length > 0) recs.push(`Resolve the ${emergencies.length} open emergency request(s) without delay.`);
+    if (recurring.length > 0) recs.push(`Plan a permanent fix for recurring issue: ${recurring[0][0]} (${recurring[0][1]} open).`);
+    if (byStaff.length > 1 && byStaff[0][1] - byStaff[byStaff.length - 1][1] >= 3) recs.push(`Rebalance assignments away from ${byStaff[0][0]}.`);
+    if (recs.length === 0) recs.push("No urgent issues detected. Keep monitoring the open backlog.");
+    recs.forEach((r) => lines.push(`- ${r}`));
 
-    const prompt = `
-      You are the COSCA Facilities Intelligence Analyst Bot for Colegio de Santa Catalina de Alejandria.
-      Perform an expert, data-driven analytical facilities audit report focused on: "${analysisFocus}".
-
-      Here is the complete current dataset of Physical Plant Job Orders:
-      ${JSON.stringify(ticketsSummary, null, 2)}
-
-      Please structure your response as a highly professional, ready-made executive report using Markdown headers (##, ###), bold points, tables, and bulleted lists, including:
-      1. EXECUTIVE SUMMARY
-      2. KEY FINDINGS / DATA SUMMARY
-      3. DETAILED DIAGNOSTIC (reference ticket IDs)
-      4. ACTIONABLE RECOMMENDATIONS (3-4 specific steps)
-      Be objective, precise, and professional.
-    `;
-
-    const response = await ai.models.generateContent({ model: "gemini-3.5-flash", contents: prompt });
-    res.json({ report: response.text ? response.text.trim() : "No report content generated." });
+    res.json({ report: lines.join("\n") });
   } catch (error: any) {
     console.error(error);
-    res.status(500).json({ error: error.message || "Failed to generate AI report." });
+    res.status(500).json({ error: error.message || "Failed to generate report." });
   }
 });
 

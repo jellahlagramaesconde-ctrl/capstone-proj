@@ -66,9 +66,15 @@ export const TicketStub: React.FC<TicketStubProps> = ({
               {priorityLabel}
             </span>
             {ticket.isEmergency && (
-              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-safety-amber text-white animate-pulse">
-                🚨 EMERGENCY
-              </span>
+              isCompleted ? (
+                <span className="text-xs px-2 py-0.5 rounded font-mono text-slate-400 border border-slate-200">
+                  Emergency
+                </span>
+              ) : (
+                <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-safety-amber text-white animate-pulse">
+                  🚨 EMERGENCY
+                </span>
+              )
             )}
           </div>
 

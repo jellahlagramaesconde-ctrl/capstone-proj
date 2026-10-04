@@ -137,7 +137,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className="flex items-center gap-1.5">
                       <span className="font-display font-medium text-sm leading-none">Smart Reports</span>
                       <span className="flex items-center gap-0.5 px-1 py-0.25 bg-[#6B1420]/10 text-[#6B1420] rounded-sm text-xs font-mono font-bold uppercase tracking-wider animate-pulse">
-                        <Sparkles className="w-2 h-2" /> {aiEnabled ? "AI" : "RULES"}
+                        <Sparkles className="w-2 h-2" /> SMART
                       </span>
                     </div>
                     <span className="text-xs font-sans text-slate-600 mt-1">Summaries &amp; Downloads</span>
