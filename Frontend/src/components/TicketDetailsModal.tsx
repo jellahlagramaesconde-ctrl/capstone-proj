@@ -10,7 +10,6 @@ import {
   MapPin,
   User,
   Clock,
-  Sparkles,
   AlertTriangle,
   Activity,
   Users,
@@ -683,19 +682,6 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                   </div>
                 </div>
               )}
-
-            {/* Benefits of the Request (AI & Rule-Based Intelligence) */}
-            {ticket.notes && (
-              <div className="bg-[#FAF7F5] border border-[#E6DDD3] rounded-xl p-4 shadow-2xs">
-                <div className="flex items-center gap-2 text-xs font-mono font-bold text-[#7C1D2D] uppercase tracking-wider mb-1.5">
-                  <Sparkles className="w-4 h-4 text-[#7C1D2D]" />
-                  <span>Benefits of the Request &amp; Operational Impact</span>
-                </div>
-                <p className="text-sm text-[#2B1210] font-sans leading-relaxed">
-                  {ticket.notes}
-                </p>
-              </div>
-            )}
 
             <BudgetRequisitionItems
               items={ticket.budgetItems || []}
