@@ -216,24 +216,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
             </span>
           </div>
 
-          {/* ── Funding Pipeline Info Line ───────────────────────────────────────
-              Explains to maintenance staff that tasks only appear here after
-              Finance releases funding — mirrors the UML flow:
-              Finance (Release Funding) → Maintenance Staff (View Assigned Tasks)
-          ─────────────────────────────────────────────────────────────────────── */}
-          <div className="mt-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5">
-            <Banknote className="w-4 h-4 text-emerald-600 shrink-0" />
-            <div className="flex items-center gap-1.5 flex-wrap text-xs font-mono text-emerald-800">
-              <span className="font-bold uppercase tracking-wide">Funding Pipeline</span>
-              <span className="text-emerald-500">·</span>
-              <span>Finance Office releases funding</span>
-              <ArrowRight className="w-3 h-3 text-emerald-500 shrink-0" />
-              <span>Job order is dispatched</span>
-              <ArrowRight className="w-3 h-3 text-emerald-500 shrink-0" />
-              <span className="font-semibold text-emerald-700">Task appears here for you to action</span>
-            </div>
-          </div>
-
           {/* Category filter pills — ALL / ELECTRICAL / PLUMBING / HVAC / CARPENTRY */}
           <div className="flex flex-wrap items-center gap-1.5 bg-[#F0EAE4] p-1 border border-[#E6DDD3] rounded-lg text-xs font-mono mt-4">
             {JOB_TYPE_FILTERS.map((type) => (
@@ -385,7 +367,14 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                         <p className="text-xs text-slate-600 truncate font-sans">
                           {t.description}
                         </p>
+                        {t.completionRemarks && t.completionRemarks.trim() && (
+                          <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1 mt-1.5 font-sans line-clamp-2" title={t.completionRemarks}>
+                            <span className="font-mono font-bold uppercase text-[10px] mr-1">Remarks:</span>
+                            {t.completionRemarks}
+                          </p>
+                        )}
                       </div>
+
 
                       {/* Cost + date */}
                       <div className="text-right shrink-0 hidden sm:block">

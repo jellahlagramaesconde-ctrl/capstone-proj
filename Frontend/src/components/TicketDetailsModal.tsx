@@ -654,6 +654,21 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
               </p>
             </div>
 
+            {/* Technician's completion remarks — visible to everyone once the job is done */}
+            {isCompleted && (
+              <div className="space-y-2">
+                <span className="text-xs font-mono tracking-widest text-slate-600 uppercase font-bold flex items-center gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> TECHNICIAN'S COMPLETION REMARKS
+                </span>
+                <p className="text-sm text-[#4A322E] font-sans leading-relaxed bg-emerald-50/60 p-4 rounded-lg border border-emerald-200 whitespace-pre-wrap">
+                  {ticket.completionRemarks && ticket.completionRemarks.trim()
+                    ? ticket.completionRemarks
+                    : <span className="italic text-slate-500">No remarks were left by the technician.</span>}
+                </p>
+              </div>
+            )}
+
+
             {/* Attached Photos, if the requester included any at submission */}
             {(ticket.photoUrls && ticket.photoUrls.length > 0
               ? ticket.photoUrls
