@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { JobOrder, Notification } from "../types";
 import { TicketDetailsModal } from "./TicketDetailsModal";
+import { DenySuspendModal } from "./DenySuspendModal";
 import { NewJobOrderButton } from "./NewJobOrderButton";
 import { getJobOrderCostDisplay, formatPeso, sumJobOrderCosts } from "../priceUtils";
 import {
@@ -13,11 +14,18 @@ import {
   FileText,
   AlertTriangle,
   Inbox,
+  Ban,
+  PauseCircle,
+  Play,
+  RotateCcw,
 } from "lucide-react";
 
 interface SchoolHeadDashboardProps {
   tickets: JobOrder[];
   onSchoolHeadApprove: (id: string) => void;
+  onDeny?: (id: string, reason: string) => Promise<void> | void;
+  onSuspend?: (id: string, reason: string) => Promise<void> | void;
+  onResume?: (id: string, reason?: string) => Promise<void> | void;
   displayName?: string;
   onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean) => Promise<void>;
   isSubmitting?: boolean;
@@ -32,6 +40,9 @@ interface SchoolHeadDashboardProps {
 export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
   tickets,
   onSchoolHeadApprove,
+  onDeny,
+  onSuspend,
+  onResume,
   displayName,
   onSubmitRequest,
   isSubmitting = false,
@@ -41,15 +52,16 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
   readNotificationIds = new Set(),
   onMarkNotificationsRead = () => { },
 }) => {
-  const [activeTab, setActiveTab] = useState<"pending" | "endorsed">("pending");
+  const [activeTab, setActiveTab] = useState<"pending" | "endorsed" | "suspended" | "denied">("pending");
   const [selectedTicket, setSelectedTicket] = useState<JobOrder | null>(null);
   const [endorsingId, setEndorsingId] = useState<string | null>(null);
+  const [denySuspendTarget, setDenySuspendTarget] = useState<{ ticket: JobOrder; mode: "deny" | "suspend" } | null>(null);
 
-  // Pending: PPO-approved, funded-track, not yet endorsed by president, not completed
+  // Pending: PPO-approved, funded-track, not yet endorsed by president, not completed, not denied, not suspended
   // No-fund tickets skip this stage entirely and go straight to In Progress.
   const pendingEndorsementTickets = useMemo(() => {
     return tickets
-      .filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.requiresFunds && t.status !== "Completed")
+      .filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.requiresFunds && t.status !== "Completed" && t.status !== "Denied" && t.status !== "Suspended")
       .sort((a, b) => b.priorityScore - a.priorityScore);
   }, [tickets]);
 
@@ -63,9 +75,28 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
       );
   }, [tickets]);
 
+  // Suspended tickets
+  const suspendedTickets = useMemo(() => {
+    return tickets
+      .filter((t) => t.status === "Suspended")
+      .sort((a, b) => b.priorityScore - a.priorityScore);
+  }, [tickets]);
+
+  // Denied tickets
+  const deniedTickets = useMemo(() => {
+    return tickets
+      .filter((t) => t.status === "Denied")
+      .sort(
+        (a, b) =>
+          new Date(b.statusChangedAt || b.dateSubmitted).getTime() - new Date(a.statusChangedAt || a.dateSubmitted).getTime()
+      );
+  }, [tickets]);
+
   const stats = useMemo(() => {
     const pendingCount = pendingEndorsementTickets.length;
     const endorsedCount = endorsedTickets.length;
+    const suspendedCount = suspendedTickets.length;
+    const deniedCount = deniedTickets.length;
     const avgPriority =
       pendingCount > 0
         ? Math.round(
@@ -75,8 +106,8 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
     const totalRegistryValue = sumJobOrderCosts(tickets);
     const highPriorityCount = pendingEndorsementTickets.filter((t) => t.priorityScore >= 60).length;
     const emergencyCount = pendingEndorsementTickets.filter((t) => t.isEmergency).length;
-    return { pendingCount, endorsedCount, avgPriority, totalRegistryValue, highPriorityCount, emergencyCount };
-  }, [pendingEndorsementTickets, endorsedTickets, tickets]);
+    return { pendingCount, endorsedCount, suspendedCount, deniedCount, avgPriority, totalRegistryValue, highPriorityCount, emergencyCount };
+  }, [pendingEndorsementTickets, endorsedTickets, suspendedTickets, deniedTickets, tickets]);
 
   // Priority tier: visual styling based on score
   const getPriorityTier = (score: number) => {
@@ -301,38 +332,54 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
         {/* ══════════════════════════════════════════
             TAB NAVIGATION
         ══════════════════════════════════════════ */}
-        <div className="flex items-center gap-1 bg-white border border-[#E6DDD3] rounded-xl p-1 mb-6 w-fit shadow-sm">
+        <div className="flex items-center gap-1 bg-white border border-[#E6DDD3] rounded-xl p-1 mb-6 w-fit shadow-sm flex-wrap">
           {[
             {
               key: "pending",
               icon: <Clock className="w-4 h-4" />,
               label: "Pending Endorsement",
+              shortLabel: "Pending",
               count: stats.pendingCount,
+              badgeClass: activeTab === "pending" ? "bg-white/20 text-white" : "bg-[#F0EAE4] text-[#6B1420]",
             },
             {
               key: "endorsed",
               icon: <CheckCircle className="w-4 h-4" />,
               label: "My Endorsed Log",
+              shortLabel: "Endorsed",
               count: stats.endorsedCount,
+              badgeClass: activeTab === "endorsed" ? "bg-white/20 text-white" : "bg-[#F0EAE4] text-emerald-700",
+            },
+            {
+              key: "suspended",
+              icon: <PauseCircle className="w-4 h-4 text-amber-600" />,
+              label: "Suspended / On Hold",
+              shortLabel: "Suspended",
+              count: stats.suspendedCount,
+              badgeClass: activeTab === "suspended" ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800",
+            },
+            {
+              key: "denied",
+              icon: <Ban className="w-4 h-4 text-rose-600" />,
+              label: "Denied Requests",
+              shortLabel: "Denied",
+              count: stats.deniedCount,
+              badgeClass: activeTab === "denied" ? "bg-white/20 text-white" : "bg-rose-100 text-rose-800",
             },
           ].map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key as "pending" | "endorsed")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-display font-semibold text-sm transition-all cursor-pointer ${activeTab === tab.key
-                ? "bg-[#6B1420] text-white shadow-sm"
-                : "text-slate-700 hover:text-[#241012] hover:bg-[#F5F1EC]"
-                }`}
+              onClick={() => setActiveTab(tab.key as any)}
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg font-display font-semibold text-xs sm:text-sm transition-all cursor-pointer ${
+                activeTab === tab.key
+                  ? "bg-[#6B1420] text-white shadow-sm"
+                  : "text-slate-700 hover:text-[#241012] hover:bg-[#F5F1EC]"
+              }`}
             >
               {tab.icon}
               <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">{tab.key === "pending" ? "Pending" : "Endorsed"}</span>
-              <span
-                className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded-full ${activeTab === tab.key
-                  ? "bg-white/20 text-white"
-                  : "bg-[#F0EAE4] text-[#6B1420]"
-                  }`}
-              >
+              <span className="sm:hidden">{tab.shortLabel}</span>
+              <span className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded-full ${tab.badgeClass}`}>
                 {tab.count}
               </span>
             </button>
@@ -529,27 +576,57 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
                               </span>
                             </div>
                           )}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEndorse(ticket.id);
-                            }}
-                            disabled={isEndorsing}
-                            className="w-full py-3 bg-[#6B1420] hover:bg-[#4A0D16] active:scale-[0.99] text-white text-sm font-display font-semibold rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
-                          >
-                            {isEndorsing ? (
-                              <>
-                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                Endorsing…
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle className="w-4 h-4" />
-                                Endorse &amp; Forward to Finance
-                                <ChevronRight className="w-4 h-4 opacity-60" />
-                              </>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEndorse(ticket.id);
+                              }}
+                              disabled={isEndorsing}
+                              className="flex-1 py-3 bg-[#6B1420] hover:bg-[#4A0D16] active:scale-[0.99] text-white text-sm font-display font-semibold rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+                            >
+                              {isEndorsing ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                  Endorsing…
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle className="w-4 h-4" />
+                                  Endorse &amp; Forward to Finance
+                                  <ChevronRight className="w-4 h-4 opacity-60" />
+                                </>
+                              )}
+                            </button>
+                            {onSuspend && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDenySuspendTarget({ ticket, mode: "suspend" });
+                                }}
+                                className="px-3.5 py-3 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 font-display font-semibold text-xs sm:text-sm rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+                                title="Put request on hold with note"
+                              >
+                                <PauseCircle className="w-4 h-4 text-amber-600" />
+                                <span className="hidden sm:inline">Suspend</span>
+                              </button>
                             )}
-                          </button>
+                            {onDeny && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDenySuspendTarget({ ticket, mode: "deny" });
+                                }}
+                                className="px-3.5 py-3 border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-display font-semibold text-xs sm:text-sm rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+                                title="Disapprove and reject request with note"
+                              >
+                                <Ban className="w-4 h-4 text-rose-600" />
+                                <span className="hidden sm:inline">Deny</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -669,16 +746,239 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
             )}
           </div>
         )}
+
+        {/* ══════════════════════════════════════════
+            TAB: SUSPENDED / ON HOLD
+        ══════════════════════════════════════════ */}
+        {activeTab === "suspended" && (
+          <div>
+            {suspendedTickets.length === 0 ? (
+              <div className="bg-white border border-[#E6DDD3] rounded-xl p-16 text-center shadow-sm">
+                <div className="w-16 h-16 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-4">
+                  <PauseCircle className="w-8 h-8 text-amber-600" />
+                </div>
+                <h4 className="font-display font-bold text-lg text-[#241012]">
+                  No Suspended Requests
+                </h4>
+                <p className="text-sm text-slate-600 mt-2 max-w-sm mx-auto font-sans leading-relaxed">
+                  There are currently no job orders placed on hold.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <p className="text-sm font-sans text-slate-700">
+                    <span className="font-semibold text-[#2B1210]">
+                      {suspendedTickets.length}
+                    </span>{" "}
+                    request{suspendedTickets.length !== 1 ? "s" : ""} on hold
+                  </p>
+                </div>
+                {suspendedTickets.map((ticket) => {
+                  const costDisplay = getJobOrderCostDisplay(ticket);
+                  return (
+                    <div
+                      key={ticket.id}
+                      className="bg-white border-l-4 border-l-amber-500 border border-amber-200/80 rounded-xl shadow-sm hover:shadow-md transition-all p-5"
+                    >
+                      <div
+                        className="cursor-pointer"
+                        onClick={() => setSelectedTicket(ticket)}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-sm font-bold text-[#241012] bg-[#F0EAE4] px-2 py-0.5 rounded">
+                              {ticket.id}
+                            </span>
+                            <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                              <PauseCircle className="w-3.5 h-3.5" />
+                              SUSPENDED
+                            </span>
+                            <span className="text-xs font-mono px-2 py-0.5 bg-[#F0EAE4] text-[#6B1420] border border-[#E6DDD3] rounded-full">
+                              {ticket.jobType}
+                            </span>
+                          </div>
+                          <span className="text-xs font-mono text-slate-600">
+                            {ticket.statusChangedAt
+                              ? new Date(ticket.statusChangedAt).toLocaleString()
+                              : "—"}
+                          </span>
+                        </div>
+
+                        <h4 className="font-display font-bold text-base text-[#241012] mb-1">
+                          {ticket.office}
+                        </h4>
+                        <p className="text-sm text-slate-700 line-clamp-2 font-sans mb-3">
+                          {ticket.description}
+                        </p>
+
+                        {/* Suspension callout */}
+                        <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-lg text-xs font-sans text-amber-900 mb-3">
+                          <p className="font-bold font-mono text-[11px] uppercase tracking-wider text-amber-800 mb-0.5">
+                            Reason for Suspension ({ticket.statusActorRole || "Admin"}):
+                          </p>
+                          <p className="italic">"{ticket.statusReason || "Temporarily on hold pending review."}"</p>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs font-mono text-slate-600 border-t border-[#F5F1EC] pt-3">
+                          <span>Est: <strong className="text-[#6B1420]">{costDisplay.text}</strong></span>
+                          <span>Assigned: <strong className="text-[#2B1210]">{ticket.assignedStaff || "Unassigned"}</strong></span>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      {onResume && (
+                        <div className="mt-3 pt-3 border-t border-amber-100 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onResume(ticket.id);
+                            }}
+                            className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-mono font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Resume Request
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            TAB: DENIED REQUESTS
+        ══════════════════════════════════════════ */}
+        {activeTab === "denied" && (
+          <div>
+            {deniedTickets.length === 0 ? (
+              <div className="bg-white border border-[#E6DDD3] rounded-xl p-16 text-center shadow-sm">
+                <div className="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center mx-auto mb-4">
+                  <Ban className="w-8 h-8 text-rose-600" />
+                </div>
+                <h4 className="font-display font-bold text-lg text-[#241012]">
+                  No Denied Requests
+                </h4>
+                <p className="text-sm text-slate-600 mt-2 max-w-sm mx-auto font-sans leading-relaxed">
+                  No requests have been disapproved or denied.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <p className="text-sm font-sans text-slate-700">
+                    <span className="font-semibold text-[#2B1210]">
+                      {deniedTickets.length}
+                    </span>{" "}
+                    denied request{deniedTickets.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                {deniedTickets.map((ticket) => {
+                  const costDisplay = getJobOrderCostDisplay(ticket);
+                  return (
+                    <div
+                      key={ticket.id}
+                      className="bg-white border-l-4 border-l-rose-500 border border-rose-200/80 rounded-xl shadow-sm hover:shadow-md transition-all p-5 cursor-pointer"
+                      onClick={() => setSelectedTicket(ticket)}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-sm font-bold text-[#241012] bg-[#F0EAE4] px-2 py-0.5 rounded">
+                            {ticket.id}
+                          </span>
+                          <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1">
+                            <Ban className="w-3.5 h-3.5" />
+                            DENIED
+                          </span>
+                          <span className="text-xs font-mono px-2 py-0.5 bg-[#F0EAE4] text-[#6B1420] border border-[#E6DDD3] rounded-full">
+                            {ticket.jobType}
+                          </span>
+                        </div>
+                        <span className="text-xs font-mono text-slate-600">
+                          {ticket.statusChangedAt
+                            ? new Date(ticket.statusChangedAt).toLocaleString()
+                            : "—"}
+                        </span>
+                      </div>
+
+                      <h4 className="font-display font-bold text-base text-[#241012] mb-1">
+                        {ticket.office}
+                      </h4>
+                      <p className="text-sm text-slate-700 line-clamp-2 font-sans mb-3">
+                        {ticket.description}
+                      </p>
+
+                      {/* Denial Remarks */}
+                      <div className="p-3 bg-rose-50/80 border border-rose-200 rounded-lg text-xs font-sans text-rose-900 mb-3">
+                        <p className="font-bold font-mono text-[11px] uppercase tracking-wider text-rose-800 mb-0.5">
+                          Disapproval Remarks ({ticket.statusActorRole || "Admin"}):
+                        </p>
+                        <p className="italic">"{ticket.statusReason || "Disapproved by institutional authority."}"</p>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs font-mono text-slate-600 border-t border-[#F5F1EC] pt-3">
+                        <span>Est: <strong className="text-[#6B1420]">{costDisplay.text}</strong></span>
+                        <span>Requester: <strong className="text-[#2B1210]">{ticket.requestedByName}</strong></span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ══════════════════════════════════════════
-          TICKET DETAILS MODAL (read-only view)
+          TICKET DETAILS MODAL
       ══════════════════════════════════════════ */}
       {selectedTicket && (
         <TicketDetailsModal
           isOpen={!!selectedTicket}
           ticket={selectedTicket}
           onClose={() => setSelectedTicket(null)}
+          actorRole="President"
+          onSchoolHeadApprove={(id) => {
+            onSchoolHeadApprove(id);
+            setSelectedTicket(null);
+          }}
+          onDeny={async (id, reason) => {
+            await onDeny?.(id, reason);
+            setSelectedTicket(null);
+          }}
+          onSuspend={async (id, reason) => {
+            await onSuspend?.(id, reason);
+            setSelectedTicket(null);
+          }}
+          onResume={async (id, reason) => {
+            await onResume?.(id, reason);
+            setSelectedTicket(null);
+          }}
+        />
+      )}
+
+      {/* ══════════════════════════════════════════
+          DENY / SUSPEND MODAL
+      ══════════════════════════════════════════ */}
+      {denySuspendTarget && (
+        <DenySuspendModal
+          isOpen={true}
+          mode={denySuspendTarget.mode}
+          ticket={denySuspendTarget.ticket}
+          actorRole="President"
+          onClose={() => setDenySuspendTarget(null)}
+          onConfirm={async (reason) => {
+            if (denySuspendTarget.mode === "deny") {
+              await onDeny?.(denySuspendTarget.ticket.id, reason);
+            } else {
+              await onSuspend?.(denySuspendTarget.ticket.id, reason);
+            }
+            setDenySuspendTarget(null);
+          }}
         />
       )}
     </div>

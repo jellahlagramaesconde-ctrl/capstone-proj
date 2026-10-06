@@ -83,7 +83,7 @@ interface SettingsModalProps {
   staffProfiles?: StaffProfile[];
   skillsList?: SkillOption[];
   onCreateSkill?: (name: string) => Promise<{ ok: boolean; error?: string }>;
-  onAssignStaffSkill?: (staffId: number, skillId: number, proficiency: number, yearsExperience: number) => Promise<{ ok: boolean; error?: string }>;
+  onAssignStaffSkill?: (staffId: number, skillIdOrName: number | string, proficiency?: number, yearsExperience?: number) => Promise<{ ok: boolean; error?: string }>;
   onRemoveStaffSkill?: (staffId: number, skillId: number) => Promise<{ ok: boolean; error?: string }>;
   // Sets a worker's highest relevant qualification (free text — TESDA cert,
   // vocational diploma, degree, etc.). Record-keeping only; see the note on
@@ -301,10 +301,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Worker Skills & Specialties — new skill creation + per-staff assignment drafts
   const [newSkillName, setNewSkillName] = useState("");
   const [skillActionBusy, setSkillActionBusy] = useState(false);
-  const [staffSkillDrafts, setStaffSkillDrafts] = useState<Record<number, { skillId: string; proficiency: number; yearsExperience: string }>>({});
+  const [staffSkillDrafts, setStaffSkillDrafts] = useState<Record<number, { skillInput: string; yearsExperience: string }>>({});
 
-  const getStaffDraft = (staffId: number) => staffSkillDrafts[staffId] || { skillId: "", proficiency: 3, yearsExperience: "0" };
-  const setStaffDraft = (staffId: number, patch: Partial<{ skillId: string; proficiency: number; yearsExperience: string }>) => {
+  const getStaffDraft = (staffId: number) => staffSkillDrafts[staffId] || { skillInput: "", yearsExperience: "" };
+  const setStaffDraft = (staffId: number, patch: Partial<{ skillInput: string; yearsExperience: string }>) => {
     setStaffSkillDrafts((prev) => ({ ...prev, [staffId]: { ...getStaffDraft(staffId), ...patch } }));
   };
 
@@ -329,18 +329,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleAssignSkill = async (staffId: number) => {
     const draft = getStaffDraft(staffId);
-    if (!draft.skillId || !onAssignStaffSkill) return;
-    const years = Number(draft.yearsExperience);
-    if (!Number.isFinite(years) || years < 0 || years > 60) {
-      showToast("Years of experience must be a number from 0 to 60.");
+    const typedSkill = draft.skillInput.trim();
+    if (!typedSkill) {
+      showToast("Please enter or select a skill.");
       return;
     }
+    if (!onAssignStaffSkill) return;
+
+    let years = 0;
+    if (draft.yearsExperience.trim()) {
+      years = Number(draft.yearsExperience);
+      if (!Number.isFinite(years) || years < 0 || years > 60) {
+        showToast("Years of experience must be between 0 and 60.");
+        return;
+      }
+    }
+
     setSkillActionBusy(true);
-    const res = await onAssignStaffSkill(staffId, Number(draft.skillId), draft.proficiency, years);
+    const match = skillsList.find((sk) => sk.name.toLowerCase() === typedSkill.toLowerCase());
+    const res = await onAssignStaffSkill(staffId, match ? match.id : typedSkill, 3, years);
     setSkillActionBusy(false);
     if (res.ok) {
-      showToast("Skill assigned.");
-      setStaffDraft(staffId, { skillId: "", yearsExperience: "0" });
+      showToast(`Skill "${typedSkill}" assigned.`);
+      setStaffDraft(staffId, { skillInput: "", yearsExperience: "" });
     } else {
       showToast(res.error || "Could not assign that skill.");
     }
@@ -1702,10 +1713,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Maintenance Staff Skills &amp; Specialties
                 </h4>
                 <p className="text-xs text-slate-700 font-sans">
-                  Assign each maintenance worker's skills, proficiency (1–5), and years of hands-on experience in that skill. The dispatcher uses exactly this data — 55% skill proficiency, 15% years of experience (capped at 10 years), 30% current availability — to pick the best-matched worker for each incoming job order automatically.
+                  Assign each maintenance worker's skills and optional years of hands-on experience. The dispatcher uses this data along with current availability to pick the best-matched worker for each incoming job order automatically.
                 </p>
                 <p className="text-xs text-slate-700 font-sans">
-                  Each worker's highest qualification (TESDA certificate, vocational diploma, degree, etc.) can also be recorded below for the personnel record. It's shown for PPO's reference but isn't scored automatically — unlike proficiency and experience, credentials can't be reliably ranked against each other across different trades.
+                  Each worker's highest qualification (TESDA certificate, vocational diploma, degree, etc.) can also be recorded below for the personnel record. It's shown for PPO's reference but isn't scored automatically — unlike trade skills and experience, credentials can't be reliably ranked against each other across different trades.
                 </p>
                 <p className="text-xs text-slate-700 font-sans">
                   Every worker here with a <span className="font-bold text-soft-green">Linked account</span> tag matches a real login on the User Accounts tab. Anything tagged <span className="font-bold text-safety-amber">No login account · mock</span> has no matching user and can be removed with the trash icon.
@@ -1799,13 +1810,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           {staff.skills.map((sk) => (
                             <span
                               key={sk.skillId}
-                              className="inline-flex items-center gap-1.5 text-xs font-mono font-bold bg-[#6B1420]/10 text-[#6B1420] px-2 py-1 rounded-full"
+                              className="inline-flex items-center gap-1.5 text-xs font-mono font-bold bg-[#6B1420]/10 text-[#6B1420] px-2.5 py-1 rounded-full"
                             >
-                              {sk.skillName} · Lv{sk.proficiency} · {sk.yearsExperience}y exp
+                              <span>{sk.skillName}</span>
+                              {sk.yearsExperience && sk.yearsExperience > 0 ? (
+                                <span className="font-normal opacity-75">· {sk.yearsExperience}y exp</span>
+                              ) : null}
                               <button
                                 onClick={() => handleRemoveSkill(staff.id, sk.skillId)}
                                 title="Remove skill"
-                                className="hover:text-white hover:bg-[#6B1420] rounded-full cursor-pointer"
+                                className="hover:text-white hover:bg-[#6B1420] rounded-full p-0.5 cursor-pointer transition-colors"
                               >
                                 <X className="w-3 h-3" />
                               </button>
@@ -1815,25 +1829,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                         {/* Assign a new skill to this worker */}
                         <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-[#F0EAE4]">
-                          <select
-                            value={draft.skillId}
-                            onChange={(e) => setStaffDraft(staff.id, { skillId: e.target.value })}
-                            className="text-xs px-2.5 py-1.5 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
-                          >
-                            <option value="">Select a skill...</option>
-                            {availableSkills.map((sk) => (
-                              <option key={sk.id} value={sk.id}>{sk.name}</option>
-                            ))}
-                          </select>
-                          <select
-                            value={draft.proficiency}
-                            onChange={(e) => setStaffDraft(staff.id, { proficiency: Number(e.target.value) })}
-                            className="text-xs px-2.5 py-1.5 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
-                          >
-                            {[1, 2, 3, 4, 5].map((n) => (
-                              <option key={n} value={n}>Proficiency {n}/5</option>
-                            ))}
-                          </select>
+                          <div className="relative flex-1 min-w-[200px]">
+                            <input
+                              type="text"
+                              list={`skills-datalist-${staff.id}`}
+                              value={draft.skillInput}
+                              onChange={(e) => setStaffDraft(staff.id, { skillInput: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleAssignSkill(staff.id);
+                                }
+                              }}
+                              placeholder="Type a skill (e.g. Electrical, Carpentry)..."
+                              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420] placeholder:text-slate-400"
+                            />
+                            <datalist id={`skills-datalist-${staff.id}`}>
+                              {availableSkills.map((sk) => (
+                                <option key={sk.id} value={sk.name} />
+                              ))}
+                            </datalist>
+                          </div>
                           <input
                             type="number"
                             min={0}
@@ -1841,15 +1857,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             step={0.5}
                             value={draft.yearsExperience}
                             onChange={(e) => setStaffDraft(staff.id, { yearsExperience: e.target.value })}
-                            placeholder="Yrs exp"
-                            title="Years of hands-on experience in this specific skill"
-                            className="w-20 text-xs px-2.5 py-1.5 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleAssignSkill(staff.id);
+                              }
+                            }}
+                            placeholder="Years exp. (optional)"
+                            title="Years of hands-on experience in this skill (optional)"
+                            className="w-36 text-xs px-2.5 py-1.5 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420] placeholder:text-slate-400"
                           />
                           <button
+                            type="button"
                             onClick={() => handleAssignSkill(staff.id)}
-                            disabled={!draft.skillId || skillActionBusy}
-                            className="px-3 py-1.5 bg-[#6B1420] text-white font-mono font-bold text-xs rounded-lg hover:bg-[#541019] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            disabled={!draft.skillInput.trim() || skillActionBusy}
+                            className="px-3.5 py-1.5 bg-[#6B1420] text-white font-mono font-bold text-xs rounded-lg hover:bg-[#541019] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5 shrink-0"
                           >
+                            <Plus className="w-3.5 h-3.5" />
                             Add Skill
                           </button>
                         </div>

@@ -173,6 +173,14 @@ export const TicketStub: React.FC<TicketStubProps> = ({
               <span className="inline-block text-sm font-mono font-medium px-2.5 py-1 rounded-full bg-cyan-accent/10 text-cyan-accent border border-cyan-accent/20">
                 In Progress
               </span>
+            ) : ticket.status === "Denied" ? (
+              <span className="inline-block text-sm font-mono font-medium px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+                Denied
+              </span>
+            ) : ticket.status === "Suspended" ? (
+              <span className="inline-block text-sm font-mono font-medium px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                Suspended
+              </span>
             ) : !ticket.ppoApproved ? (
               <span className="inline-block text-sm font-mono font-medium px-2.5 py-1 rounded-full bg-[#E6DDD3] text-[#4A322E] border border-[#DDD2C8]">
                 Pending PPO
@@ -217,11 +225,15 @@ export const TicketStub: React.FC<TicketStubProps> = ({
                   onApprove?.(ticket.id);
                 }}
                 title={
-                  ticket.ppoApproved
+                  ticket.status === "Denied"
+                    ? "Request is Denied"
+                    : ticket.status === "Suspended"
+                    ? "Request is Suspended"
+                    : ticket.ppoApproved
                     ? "Verified & Approved by PPO"
                     : "Quick Verify & Approve (PPO)"
                 }
-                disabled={ticket.status === "Completed" || ticket.status === "In Progress" || ticket.ppoApproved}
+                disabled={ticket.status === "Completed" || ticket.status === "In Progress" || ticket.status === "Denied" || ticket.status === "Suspended" || ticket.ppoApproved}
                 className={`p-1.5 rounded bg-cyan-accent/10 hover:bg-cyan-accent/20 text-cyan-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed`}
               >
                 <CheckCircle className="w-4 h-4" />

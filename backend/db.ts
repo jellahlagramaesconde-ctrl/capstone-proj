@@ -58,6 +58,12 @@ export function mapJobOrderRow(row: any) {
     deadline: row.deadline ? new Date(row.deadline).toISOString() : undefined,
     deadlineExtendedAt: row.deadline_extended_at ? new Date(row.deadline_extended_at).toISOString() : undefined,
     deadlineExtensionReason: row.deadline_extension_reason ?? undefined,
+    // Status reasons & denial/suspension attribution
+    statusReason: row.status_reason ?? undefined,
+    statusActorRole: row.status_actor_role ?? undefined,
+    previousStatus: row.previous_status ?? undefined,
+    statusChangedAt: row.status_changed_at ? new Date(row.status_changed_at).toISOString() : undefined,
+    statusChangedByUserId: row.status_changed_by_user_id ?? undefined,
   };
 }
 

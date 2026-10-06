@@ -4,9 +4,10 @@ import { TicketStub } from "./TicketStub";
 import { TicketDetailsModal } from "./TicketDetailsModal";
 import { NewJobOrderButton } from "./NewJobOrderButton";
 import { AccountManagementModal, UserAccount } from "./AccountManagementModal";
+import { DenySuspendModal } from "./DenySuspendModal";
 import { formatPeso, sumJobOrderCosts } from "../priceUtils";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { RefreshCw, Download, Sliders, Users, FileText, CheckCircle, ChevronDown, Check, GraduationCap, Inbox, Clock, Wallet, UserCheck, AlertTriangle, UserPlus, Plus, X, User } from "lucide-react";
+import { RefreshCw, Download, Sliders, Users, FileText, CheckCircle, ChevronDown, Check, GraduationCap, Inbox, Clock, Wallet, UserCheck, AlertTriangle, UserPlus, Plus, X, User, Ban, PauseCircle, Play } from "lucide-react";
 
 interface AdminDashboardProps {
   tickets: JobOrder[];
@@ -18,7 +19,10 @@ interface AdminDashboardProps {
   onDeleteJobOrder?: (ticketId: string) => Promise<{ ok: boolean; error?: string }>;
   onOverride: (id: string, assignedStaff: string, priorityScore: number, rationale: string, teamStaffIds?: number[]) => Promise<{ ok: boolean; error?: string }> | void;
   onApprove: (id: string, estimatedCost?: number, emergencyOverride?: boolean, confirmOverride?: boolean, requiresFunds?: boolean) => void;
-  onUpdateStatus: (id: string, status: "Pending" | "In Progress" | "Completed") => void;
+  onUpdateStatus: (id: string, status: "Pending" | "In Progress" | "Completed" | "Denied" | "Suspended") => void;
+  onDeny?: (id: string, reason: string) => Promise<void> | void;
+  onSuspend?: (id: string, reason: string) => Promise<void> | void;
+  onResume?: (id: string, reason?: string) => Promise<void> | void;
   onTicketClick?: (ticketId: string) => void;
   onSchoolHeadApprove: (id: string) => void;
   onFinanceApprove: (id: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
@@ -52,6 +56,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onOverride,
   onApprove,
   onUpdateStatus,
+  onDeny,
+  onSuspend,
+  onResume,
   onTicketClick,
   onSchoolHeadApprove,
   onFinanceApprove,
@@ -73,9 +80,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Sorting & Filtering State
   const [filterType, setFilterType] = useState<string>("All");
-  const [activeSubTab, setActiveSubTab] = useState<"president" | "ppo" | "finance" | "all">("ppo");
+  const [activeSubTab, setActiveSubTab] = useState<"president" | "ppo" | "finance" | "all" | "suspended" | "denied">("ppo");
   const [selectedTicket, setSelectedTicket] = useState<JobOrder | null>(null);
   const [recurringGroupKey, setRecurringGroupKey] = useState<string | null>(null);
+  const [inlineDenySuspend, setInlineDenySuspend] = useState<{ mode: "deny" | "suspend"; ticket: JobOrder } | null>(null);
 
   // Local PPO Cost Input State
   const [ppoCosts, setPpoCosts] = useState<Record<string, string>>({});
@@ -107,12 +115,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [ppoRequiresFunds, setPpoRequiresFunds] = useState<Record<string, boolean>>({});
 
   // Workflow queue counts — President/Finance tabs only show funded-track tickets
-  const { presidentCount, ppoCount, financeCount, allCount } = useMemo(() => {
+  const { presidentCount, ppoCount, financeCount, allCount, suspendedCount, deniedCount } = useMemo(() => {
     return {
-      presidentCount: tickets.filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.requiresFunds && t.status !== "Completed").length,
-      ppoCount: tickets.filter((t) => !t.ppoApproved && t.status !== "Completed").length,
-      financeCount: tickets.filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.requiresFunds && t.status !== "Completed").length,
+      presidentCount: tickets.filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.requiresFunds && t.status !== "Completed" && t.status !== "Denied" && t.status !== "Suspended").length,
+      ppoCount: tickets.filter((t) => !t.ppoApproved && t.status !== "Completed" && t.status !== "Denied" && t.status !== "Suspended").length,
+      financeCount: tickets.filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.requiresFunds && t.status !== "Completed" && t.status !== "Denied" && t.status !== "Suspended").length,
       allCount: tickets.length,
+      suspendedCount: tickets.filter((t) => t.status === "Suspended").length,
+      deniedCount: tickets.filter((t) => t.status === "Denied").length,
     };
   }, [tickets]);
 
@@ -138,12 +148,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     // 2. Workflow stage sub-tab filtering
     if (activeSubTab === "president") {
       // Only funded-track tickets need President endorsement
-      result = result.filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.requiresFunds && t.status !== "Completed");
+      result = result.filter((t) => t.ppoApproved && !t.schoolHeadApproved && t.requiresFunds && t.status !== "Completed" && t.status !== "Denied" && t.status !== "Suspended");
     } else if (activeSubTab === "ppo") {
-      result = result.filter((t) => !t.ppoApproved && t.status !== "Completed");
+      result = result.filter((t) => !t.ppoApproved && t.status !== "Completed" && t.status !== "Denied" && t.status !== "Suspended");
     } else if (activeSubTab === "finance") {
       // Only funded-track tickets need Finance approval
-      result = result.filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.requiresFunds && t.status !== "Completed");
+      result = result.filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.requiresFunds && t.status !== "Completed" && t.status !== "Denied" && t.status !== "Suspended");
+    } else if (activeSubTab === "suspended") {
+      result = result.filter((t) => t.status === "Suspended");
+    } else if (activeSubTab === "denied") {
+      result = result.filter((t) => t.status === "Denied");
     }
 
     return result.sort((a, b) => b.priorityScore - a.priorityScore);
@@ -473,6 +487,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {allCount}
                 </span>
               </button>
+
+              <button
+                onClick={() => setActiveSubTab("suspended")}
+                className={`px-3 py-1.5 rounded-md font-display font-medium text-xs cursor-pointer transition-all flex items-center gap-1.5 ${activeSubTab === "suspended"
+                  ? "bg-amber-100 text-amber-900 border border-amber-400 font-bold"
+                  : "text-slate-700 hover:text-[#241012]"
+                  }`}
+              >
+                <PauseCircle className="w-4 h-4 text-amber-600" />
+                <span>Suspended</span>
+                <span className="text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded font-mono font-bold">
+                  {suspendedCount}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActiveSubTab("denied")}
+                className={`px-3 py-1.5 rounded-md font-display font-medium text-xs cursor-pointer transition-all flex items-center gap-1.5 ${activeSubTab === "denied"
+                  ? "bg-rose-100 text-rose-900 border border-rose-400 font-bold"
+                  : "text-slate-700 hover:text-[#241012]"
+                  }`}
+              >
+                <Ban className="w-4 h-4 text-rose-600" />
+                <span>Denied</span>
+                <span className="text-xs bg-rose-200 text-rose-800 px-1.5 py-0.5 rounded font-mono font-bold">
+                  {deniedCount}
+                </span>
+              </button>
             </div>
 
             {/* Subtotal for the currently filtered/sorted queue */}
@@ -607,6 +649,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <CheckCircle className="w-3.5 h-3.5" />
                               {ticket.isEmergency ? "Approve 🚨 Emergency" : "Approve (PPO)"}
                             </button>
+
+                            {onDeny && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setInlineDenySuspend({ mode: "deny", ticket });
+                                }}
+                                className="px-2.5 h-8 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-mono font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                                title="Deny this request with explanation"
+                              >
+                                <Ban className="w-3.5 h-3.5" />
+                                <span>Deny</span>
+                              </button>
+                            )}
+
+                            {onSuspend && ticket.status !== "Suspended" && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setInlineDenySuspend({ mode: "suspend", ticket });
+                                }}
+                                className="px-2.5 h-8 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-mono font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                                title="Suspend this request (place on hold)"
+                              >
+                                <PauseCircle className="w-3.5 h-3.5" />
+                                <span>Suspend</span>
+                              </button>
+                            )}
                           </div>
                         )}
 
@@ -621,7 +693,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {/* 4. Display current approval stage in the All Registry view */}
                         {activeSubTab === "all" && (
                           <span className="text-xs font-mono font-bold uppercase tracking-wide">
-                            {!ticket.ppoApproved ? (
+                            {ticket.status === "Denied" ? (
+                              <span className="text-rose-600 font-semibold">✕ Denied</span>
+                            ) : ticket.status === "Suspended" ? (
+                              <span className="text-amber-600 font-semibold">⏸ Suspended (On Hold)</span>
+                            ) : !ticket.ppoApproved ? (
                               <span className="text-[#8C2331]">Awaiting PPO</span>
                             ) : !ticket.requiresFunds ? (
                               <span className="text-cyan-500">✓ No-Fund Track — Dispatched</span>
@@ -635,6 +711,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <span className="text-cyan-accent">In Dispatch</span>
                             )}
                           </span>
+                        )}
+
+                        {/* 5. Suspended Queue display with remarks and Resume button */}
+                        {activeSubTab === "suspended" && (
+                          <div className="flex flex-wrap items-center gap-2 w-full" onClick={(e) => e.stopPropagation()}>
+                            <span className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 text-xs font-mono rounded flex items-center gap-1 select-none">
+                              <PauseCircle className="w-3.5 h-3.5 text-amber-600" />
+                              Suspended by {ticket.statusActorRole || "Admin"}: {ticket.statusReason || "On Hold"}
+                            </span>
+                            {onResume && (
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  await onResume(ticket.id);
+                                  setToastMessage(`Job Order ${ticket.id} resumed.`);
+                                  setTimeout(() => setToastMessage(null), 3000);
+                                }}
+                                className="ml-auto px-3 h-8 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-mono font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                              >
+                                <Play className="w-3.5 h-3.5" />
+                                <span>Resume</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 6. Denied Queue display with remarks */}
+                        {activeSubTab === "denied" && (
+                          <div className="flex flex-wrap items-center gap-2 w-full" onClick={(e) => e.stopPropagation()}>
+                            <span className="px-2.5 py-1 bg-rose-50 text-rose-800 border border-rose-200 text-xs font-mono rounded flex items-center gap-1 select-none">
+                              <Ban className="w-3.5 h-3.5 text-rose-600" />
+                              Denied by {ticket.statusActorRole || "Admin"}: {ticket.statusReason || "Closed"}
+                            </span>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1100,7 +1211,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             setTimeout(() => setToastMessage(null), 4000);
           }
         } : undefined}
+        onDeny={onDeny}
+        onSuspend={onSuspend}
+        onResume={onResume}
+        actorRole="PPO"
       />
+
+      {/* Inline Deny / Suspend Remarks Modal for list actions */}
+      {inlineDenySuspend && (
+        <DenySuspendModal
+          isOpen={true}
+          mode={inlineDenySuspend.mode}
+          ticket={inlineDenySuspend.ticket}
+          actorRole="PPO"
+          onConfirm={async (reason) => {
+            if (inlineDenySuspend.mode === "deny" && onDeny) {
+              await onDeny(inlineDenySuspend.ticket.id, reason);
+              setToastMessage(`Job Order ${inlineDenySuspend.ticket.id} denied.`);
+              setTimeout(() => setToastMessage(null), 3500);
+            } else if (inlineDenySuspend.mode === "suspend" && onSuspend) {
+              await onSuspend(inlineDenySuspend.ticket.id, reason);
+              setToastMessage(`Job Order ${inlineDenySuspend.ticket.id} suspended.`);
+              setTimeout(() => setToastMessage(null), 3500);
+            }
+          }}
+          onClose={() => setInlineDenySuspend(null)}
+        />
+      )}
 
       {/* User Account Management Modal */}
       {onCreateUser && onDeleteUser && (

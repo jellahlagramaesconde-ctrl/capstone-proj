@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { JobOrder, Notification } from "../types";
 import { TicketDetailsModal } from "./TicketDetailsModal";
+import { DenySuspendModal } from "./DenySuspendModal";
 import { NewJobOrderButton } from "./NewJobOrderButton";
 import { FinanceTotalValuePage } from "./FinanceTotalValuePage";
 import { getJobOrderCostDisplay, formatPeso, sumJobOrderCosts } from "../priceUtils";
@@ -17,11 +18,17 @@ import {
   AlertCircle,
   Sparkles,
   ExternalLink,
+  Ban,
+  PauseCircle,
+  RotateCcw,
 } from "lucide-react";
 
 interface FinanceDashboardProps {
   tickets: JobOrder[];
   onFinanceApprove: (id: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
+  onDeny?: (id: string, reason: string) => Promise<void> | void;
+  onSuspend?: (id: string, reason: string) => Promise<void> | void;
+  onResume?: (id: string, reason?: string) => Promise<void> | void;
   onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean) => Promise<void>;
   isSubmitting?: boolean;
   officeOptions?: string[];
@@ -40,6 +47,9 @@ function parsePesoInput(value: string): string {
 export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
   tickets,
   onFinanceApprove,
+  onDeny,
+  onSuspend,
+  onResume,
   onSubmitRequest,
   isSubmitting = false,
   officeOptions,
@@ -48,9 +58,10 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
   readNotificationIds = new Set(),
   onMarkNotificationsRead = () => { },
 }) => {
-  const [activeTab, setActiveTab] = useState<"pending" | "funded" | "departments">("pending");
+  const [activeTab, setActiveTab] = useState<"pending" | "funded" | "suspended" | "denied" | "departments">("pending");
   const [financePage, setFinancePage] = useState<"dashboard" | "totalValue">("dashboard");
   const [selectedTicket, setSelectedTicket] = useState<JobOrder | null>(null);
+  const [denySuspendTarget, setDenySuspendTarget] = useState<{ ticket: JobOrder; mode: "deny" | "suspend" } | null>(null);
 
   // Per-ticket finance input state
   const [estimatedCosts, setEstimatedCosts] = useState<Record<string, string>>({});
@@ -59,11 +70,11 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
   const [fundingId, setFundingId] = useState<string | null>(null);
 
   // Only funded-track tickets (requiresFunds = true) ever reach Finance.
-  // No-fund tickets are dispatched directly after PPO approval.
+  // Exclude tickets that have been Denied or Suspended.
   const pendingFundingTickets = useMemo(
     () =>
       tickets
-        .filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.requiresFunds)
+        .filter((t) => t.ppoApproved && t.schoolHeadApproved && !t.financeApproved && t.requiresFunds && t.status !== "Completed" && t.status !== "Denied" && t.status !== "Suspended")
         .sort((a, b) => b.priorityScore - a.priorityScore),
     [tickets]
   );
@@ -75,6 +86,25 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
         .sort(
           (a, b) =>
             new Date(b.dateSubmitted).getTime() - new Date(a.dateSubmitted).getTime()
+        ),
+    [tickets]
+  );
+
+  const suspendedTickets = useMemo(
+    () =>
+      tickets
+        .filter((t) => t.status === "Suspended")
+        .sort((a, b) => b.priorityScore - a.priorityScore),
+    [tickets]
+  );
+
+  const deniedTickets = useMemo(
+    () =>
+      tickets
+        .filter((t) => t.status === "Denied")
+        .sort(
+          (a, b) =>
+            new Date(b.statusChangedAt || b.dateSubmitted).getTime() - new Date(a.statusChangedAt || a.dateSubmitted).getTime()
         ),
     [tickets]
   );
@@ -325,6 +355,7 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
               key: "pending",
               icon: <Clock className="w-4 h-4" />,
               label: "Pending Sign-off",
+              shortLabel: "Pending",
               count: stats.awaitingCount,
               countStyle: "bg-amber-500/15 text-amber-600",
             },
@@ -332,30 +363,46 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
               key: "funded",
               icon: <CheckCircle className="w-4 h-4" />,
               label: "Funded History",
+              shortLabel: "Funded",
               count: stats.fundedCount,
               countStyle: "bg-emerald-500/15 text-emerald-600",
+            },
+            {
+              key: "suspended",
+              icon: <PauseCircle className="w-4 h-4 text-amber-600" />,
+              label: "Suspended / On Hold",
+              shortLabel: "Suspended",
+              count: suspendedTickets.length,
+              countStyle: "bg-amber-100 text-amber-800",
+            },
+            {
+              key: "denied",
+              icon: <Ban className="w-4 h-4 text-rose-600" />,
+              label: "Denied Requests",
+              shortLabel: "Denied",
+              count: deniedTickets.length,
+              countStyle: "bg-rose-100 text-rose-800",
             },
             {
               key: "departments",
               icon: <Building2 className="w-4 h-4" />,
               label: "By Department",
+              shortLabel: "Dept.",
               count: departmentBreakdown.length,
               countStyle: "bg-[#6B1420]/15 text-[#6B1420]",
             },
           ].map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key as "pending" | "funded" | "departments")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-display font-semibold text-sm transition-all cursor-pointer ${activeTab === tab.key
+              onClick={() => setActiveTab(tab.key as any)}
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg font-display font-semibold text-xs sm:text-sm transition-all cursor-pointer ${activeTab === tab.key
                 ? "bg-[#6B1420] text-white shadow-sm"
                 : "text-slate-700 hover:text-[#241012] hover:bg-[#F5F1EC]"
                 }`}
             >
               {tab.icon}
               <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">
-                {tab.key === "pending" ? "Pending" : tab.key === "funded" ? "Funded" : "Dept."}
-              </span>
+              <span className="sm:hidden">{tab.shortLabel}</span>
               <span
                 className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded-full ${activeTab === tab.key ? "bg-white/20 text-white" : tab.countStyle
                   }`}
@@ -631,27 +678,57 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                             </p>
                           )}
 
-                          {/* Fund button */}
-                          <button
-                            onClick={() => handleFund(ticket)}
-                            disabled={!hasValidAppr || isFunding}
-                            className="w-full py-3 bg-[#155C35] hover:bg-[#0A3B21] active:scale-[0.99] text-white text-sm font-display font-semibold rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {isFunding ? (
-                              <>
-                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                Releasing Funds…
-                              </>
-                            ) : (
-                              <>
-                                <span className="font-bold text-base leading-none">₱</span>
-                                Approve &amp; Release{" "}
-                                {hasValidAppr && (
-                                  <span className="font-mono">{formatPeso(apprNum)}</span>
-                                )}
-                              </>
+                          {/* Fund button and secondary Deny / Suspend buttons */}
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleFund(ticket)}
+                              disabled={!hasValidAppr || isFunding}
+                              className="flex-1 py-3 bg-[#155C35] hover:bg-[#0A3B21] active:scale-[0.99] text-white text-sm font-display font-semibold rounded-lg transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {isFunding ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                  Releasing Funds…
+                                </>
+                              ) : (
+                                <>
+                                  <span className="font-bold text-base leading-none">₱</span>
+                                  Approve &amp; Release{" "}
+                                  {hasValidAppr && (
+                                    <span className="font-mono">{formatPeso(apprNum)}</span>
+                                  )}
+                                </>
+                              )}
+                            </button>
+                            {onSuspend && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDenySuspendTarget({ ticket, mode: "suspend" });
+                                }}
+                                className="px-3.5 py-3 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 font-display font-semibold text-xs sm:text-sm rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+                                title="Put request on hold with finance remarks"
+                              >
+                                <PauseCircle className="w-4 h-4 text-amber-600" />
+                                <span className="hidden sm:inline">Suspend</span>
+                              </button>
                             )}
-                          </button>
+                            {onDeny && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDenySuspendTarget({ ticket, mode: "deny" });
+                                }}
+                                className="px-3.5 py-3 border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-display font-semibold text-xs sm:text-sm rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+                                title="Disapprove and reject funding with remarks"
+                              >
+                                <Ban className="w-4 h-4 text-rose-600" />
+                                <span className="hidden sm:inline">Deny</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -962,18 +1039,237 @@ export const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
             )}
           </div>
         )}
+
+        {/* ════════════════════════════════════════════
+            TAB: SUSPENDED / ON HOLD
+        ════════════════════════════════════════════ */}
+        {activeTab === "suspended" && (
+          <div>
+            {suspendedTickets.length === 0 ? (
+              <div className="bg-white border border-[#E6DDD3] rounded-xl p-16 text-center shadow-sm">
+                <div className="w-16 h-16 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-4">
+                  <PauseCircle className="w-8 h-8 text-amber-600" />
+                </div>
+                <h4 className="font-display font-bold text-lg text-[#241012]">
+                  No Suspended Requests
+                </h4>
+                <p className="text-sm text-slate-600 mt-2 max-w-sm mx-auto font-sans leading-relaxed">
+                  There are currently no job orders on hold in the Finance desk.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <p className="text-sm font-sans text-slate-700">
+                    <span className="font-semibold text-[#2B1210]">
+                      {suspendedTickets.length}
+                    </span>{" "}
+                    request{suspendedTickets.length !== 1 ? "s" : ""} on hold
+                  </p>
+                </div>
+                {suspendedTickets.map((ticket) => {
+                  const costDisplay = getJobOrderCostDisplay(ticket);
+                  return (
+                    <div
+                      key={ticket.id}
+                      className="bg-white border-l-4 border-l-amber-500 border border-amber-200/80 rounded-xl shadow-sm hover:shadow-md transition-all p-5"
+                    >
+                      <div
+                        className="cursor-pointer"
+                        onClick={() => setSelectedTicket(ticket)}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-sm font-bold text-[#241012] bg-[#F0EAE4] px-2 py-0.5 rounded">
+                              {ticket.id}
+                            </span>
+                            <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                              <PauseCircle className="w-3.5 h-3.5" />
+                              SUSPENDED
+                            </span>
+                            <span className="text-xs font-mono px-2 py-0.5 bg-[#F0EAE4] text-[#6B1420] border border-[#E6DDD3] rounded-full">
+                              {ticket.jobType}
+                            </span>
+                          </div>
+                          <span className="text-xs font-mono text-slate-600">
+                            {ticket.statusChangedAt
+                              ? new Date(ticket.statusChangedAt).toLocaleString()
+                              : "—"}
+                          </span>
+                        </div>
+
+                        <h4 className="font-display font-bold text-base text-[#241012] mb-1">
+                          {ticket.office}
+                        </h4>
+                        <p className="text-sm text-slate-700 line-clamp-2 font-sans mb-3">
+                          {ticket.description}
+                        </p>
+
+                        {/* Suspension callout */}
+                        <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-lg text-xs font-sans text-amber-900 mb-3">
+                          <p className="font-bold font-mono text-[11px] uppercase tracking-wider text-amber-800 mb-0.5">
+                            Reason for Suspension ({ticket.statusActorRole || "Admin"}):
+                          </p>
+                          <p className="italic">"{ticket.statusReason || "Temporarily on hold pending review."}"</p>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs font-mono text-slate-600 border-t border-[#F5F1EC] pt-3">
+                          <span>Est: <strong className="text-[#6B1420]">{costDisplay.text}</strong></span>
+                          <span>Requested By: <strong className="text-[#2B1210]">{ticket.requestedByName}</strong></span>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      {onResume && (
+                        <div className="mt-3 pt-3 border-t border-amber-100 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onResume(ticket.id);
+                            }}
+                            className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-mono font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Resume Request
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════
+            TAB: DENIED REQUESTS
+        ════════════════════════════════════════════ */}
+        {activeTab === "denied" && (
+          <div>
+            {deniedTickets.length === 0 ? (
+              <div className="bg-white border border-[#E6DDD3] rounded-xl p-16 text-center shadow-sm">
+                <div className="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center mx-auto mb-4">
+                  <Ban className="w-8 h-8 text-rose-600" />
+                </div>
+                <h4 className="font-display font-bold text-lg text-[#241012]">
+                  No Denied Requests
+                </h4>
+                <p className="text-sm text-slate-600 mt-2 max-w-sm mx-auto font-sans leading-relaxed">
+                  No requests have been denied or disapproved by Finance.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <p className="text-sm font-sans text-slate-700">
+                    <span className="font-semibold text-[#2B1210]">
+                      {deniedTickets.length}
+                    </span>{" "}
+                    denied request{deniedTickets.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                {deniedTickets.map((ticket) => {
+                  const costDisplay = getJobOrderCostDisplay(ticket);
+                  return (
+                    <div
+                      key={ticket.id}
+                      className="bg-white border-l-4 border-l-rose-500 border border-rose-200/80 rounded-xl shadow-sm hover:shadow-md transition-all p-5 cursor-pointer"
+                      onClick={() => setSelectedTicket(ticket)}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-sm font-bold text-[#241012] bg-[#F0EAE4] px-2 py-0.5 rounded">
+                            {ticket.id}
+                          </span>
+                          <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1">
+                            <Ban className="w-3.5 h-3.5" />
+                            DENIED
+                          </span>
+                          <span className="text-xs font-mono px-2 py-0.5 bg-[#F0EAE4] text-[#6B1420] border border-[#E6DDD3] rounded-full">
+                            {ticket.jobType}
+                          </span>
+                        </div>
+                        <span className="text-xs font-mono text-slate-600">
+                          {ticket.statusChangedAt
+                            ? new Date(ticket.statusChangedAt).toLocaleString()
+                            : "—"}
+                        </span>
+                      </div>
+
+                      <h4 className="font-display font-bold text-base text-[#241012] mb-1">
+                        {ticket.office}
+                      </h4>
+                      <p className="text-sm text-slate-700 line-clamp-2 font-sans mb-3">
+                        {ticket.description}
+                      </p>
+
+                      {/* Denial Remarks */}
+                      <div className="p-3 bg-rose-50/80 border border-rose-200 rounded-lg text-xs font-sans text-rose-900 mb-3">
+                        <p className="font-bold font-mono text-[11px] uppercase tracking-wider text-rose-800 mb-0.5">
+                          Disapproval Remarks ({ticket.statusActorRole || "Admin"}):
+                        </p>
+                        <p className="italic">"{ticket.statusReason || "Disapproved by Finance."}"</p>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs font-mono text-slate-600 border-t border-[#F5F1EC] pt-3">
+                        <span>Est: <strong className="text-[#6B1420]">{costDisplay.text}</strong></span>
+                        <span>Requester: <strong className="text-[#2B1210]">{ticket.requestedByName}</strong></span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Ticket Details Modal */}
-      <TicketDetailsModal
-        isOpen={selectedTicket !== null}
-        ticket={selectedTicket}
-        onClose={() => setSelectedTicket(null)}
-        onFinanceApprove={(id, approvedAmount, estimatedCost, financeNotes) => {
-          onFinanceApprove(id, approvedAmount, estimatedCost, financeNotes);
-          setSelectedTicket(null);
-        }}
-      />
+      {selectedTicket && (
+        <TicketDetailsModal
+          isOpen={selectedTicket !== null}
+          ticket={selectedTicket}
+          onClose={() => setSelectedTicket(null)}
+          actorRole="Finance"
+          onFinanceApprove={(id, approvedAmount, estimatedCost, financeNotes) => {
+            onFinanceApprove(id, approvedAmount, estimatedCost, financeNotes);
+            setSelectedTicket(null);
+          }}
+          onDeny={async (id, reason) => {
+            await onDeny?.(id, reason);
+            setSelectedTicket(null);
+          }}
+          onSuspend={async (id, reason) => {
+            await onSuspend?.(id, reason);
+            setSelectedTicket(null);
+          }}
+          onResume={async (id, reason) => {
+            await onResume?.(id, reason);
+            setSelectedTicket(null);
+          }}
+        />
+      )}
+
+      {/* Deny / Suspend Modal */}
+      {denySuspendTarget && (
+        <DenySuspendModal
+          isOpen={true}
+          mode={denySuspendTarget.mode}
+          ticket={denySuspendTarget.ticket}
+          actorRole="Finance"
+          onClose={() => setDenySuspendTarget(null)}
+          onConfirm={async (reason) => {
+            if (denySuspendTarget.mode === "deny") {
+              await onDeny?.(denySuspendTarget.ticket.id, reason);
+            } else {
+              await onSuspend?.(denySuspendTarget.ticket.id, reason);
+            }
+            setDenySuspendTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -7,7 +7,7 @@ import { getJobOrderCostDisplay, formatPeso, sumJobOrderCosts } from "../priceUt
 
 interface StaffDashboardProps {
   tickets: JobOrder[];
-  onUpdateStatus: (id: string, status: "Pending" | "In Progress" | "Completed", completionRemarks?: string) => void;
+  onUpdateStatus: (id: string, status: "Pending" | "In Progress" | "Completed" | "Denied" | "Suspended", completionRemarks?: string) => void;
   onTicketClick?: (ticketId: string) => void;
   activeStaffName?: string;
   notifications?: Notification[];

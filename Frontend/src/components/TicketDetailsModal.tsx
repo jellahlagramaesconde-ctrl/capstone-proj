@@ -24,21 +24,29 @@ import {
   Trash2,
   Sliders,
   UserPlus,
-  Plus
+  Plus,
+  Ban,
+  PauseCircle,
+  Play
 } from "lucide-react";
 import { Staff, StaffCandidate } from "../types";
+import { DenySuspendModal } from "./DenySuspendModal";
 
 interface TicketDetailsModalProps {
   isOpen: boolean;
   ticket: JobOrder | null;
   onClose: () => void;
   isAdmin?: boolean;
+  actorRole?: string;
   onApprove?: (ticketId: string, estimatedCost?: number, emergencyOverride?: boolean) => void;
   onOverride?: (ticketId: string) => void;
   onStaffOverride?: (ticketId: string, assignedStaff: string, priorityScore: number, rationale: string, teamStaffIds?: number[]) => Promise<{ ok: boolean; error?: string } | void>;
-  onUpdateStatus?: (ticketId: string, status: "Pending" | "In Progress" | "Completed") => void;
+  onUpdateStatus?: (ticketId: string, status: "Pending" | "In Progress" | "Completed" | "Denied" | "Suspended") => void;
   onFinanceApprove?: (ticketId: string, approvedAmount?: number, estimatedCost?: number, financeNotes?: string) => void;
   onSchoolHeadApprove?: (ticketId: string) => void;
+  onDeny?: (ticketId: string, reason: string) => Promise<void> | void;
+  onSuspend?: (ticketId: string, reason: string) => Promise<void> | void;
+  onResume?: (ticketId: string, reason?: string) => Promise<void> | void;
   onDelete?: (ticketId: string) => void;
   onSaveBudgetItems?: (ticketId: string, items: { qty: number; unit?: string; description: string; unitCost: number }[]) => Promise<void>;
   onExtendDeadline?: (ticketId: string, params: { extensionHours?: number; extensionDays?: number; newDeadline?: string; reason: string }) => Promise<{ ok: boolean; error?: string } | void>;
@@ -51,12 +59,16 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
   ticket,
   onClose,
   isAdmin = false,
+  actorRole,
   onApprove,
   onOverride,
   onStaffOverride,
   onUpdateStatus,
   onFinanceApprove,
   onSchoolHeadApprove,
+  onDeny,
+  onSuspend,
+  onResume,
   onDelete,
   onSaveBudgetItems,
   onExtendDeadline,
@@ -64,6 +76,9 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
   authedFetch,
 }) => {
   if (!isOpen || !ticket) return null;
+
+  // Local state for deny/suspend remarks modal
+  const [denySuspendMode, setDenySuspendMode] = useState<"deny" | "suspend" | null>(null);
 
   // Local states for inputs in the modal
   const [modalPpoCost, setModalPpoCost] = useState<string>("");
@@ -325,6 +340,10 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
         return "bg-soft-green/10 text-soft-green border border-soft-green/20";
       case "In Progress":
         return "bg-cyan-accent/10 text-cyan-accent border border-cyan-accent/20";
+      case "Denied":
+        return "bg-rose-100 text-rose-800 border border-rose-300";
+      case "Suspended":
+        return "bg-amber-100 text-amber-800 border border-amber-300";
       default:
         return "bg-[#6B1420]/10 text-[#6B1420] border border-[#6B1420]/20";
     }
@@ -456,6 +475,68 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
               </div>
             )}
 
+            {/* Status callout banner for Denied or Suspended requests */}
+            {ticket.status === "Denied" && (
+              <div className="flex items-start gap-3.5 bg-rose-50 border-2 border-rose-300 rounded-xl p-4 shadow-xs">
+                <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                  <Ban className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h5 className="font-display font-bold text-sm text-rose-900 uppercase tracking-wide">
+                      REQUEST DENIED BY {ticket.statusActorRole ? ticket.statusActorRole.toUpperCase() : "ADMINISTRATION"}
+                    </h5>
+                    {ticket.statusChangedAt && (
+                      <span className="text-[11px] font-mono text-rose-600">
+                        {new Date(ticket.statusChangedAt).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1.5 text-xs font-sans text-rose-900 leading-relaxed bg-white/80 border border-rose-200/90 rounded-lg p-2.5">
+                    <strong>Remarks / Explanation:</strong> {ticket.statusReason || "No explanation provided."}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {ticket.status === "Suspended" && (
+              <div className="flex items-start gap-3.5 bg-amber-50 border-2 border-amber-300 rounded-xl p-4 shadow-xs">
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                  <PauseCircle className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h5 className="font-display font-bold text-sm text-amber-900 uppercase tracking-wide">
+                      REQUEST SUSPENDED (ON HOLD) BY {ticket.statusActorRole ? ticket.statusActorRole.toUpperCase() : "ADMINISTRATION"}
+                    </h5>
+                    {ticket.statusChangedAt && (
+                      <span className="text-[11px] font-mono text-amber-700">
+                        {new Date(ticket.statusChangedAt).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1.5 text-xs font-sans text-amber-900 leading-relaxed bg-white/80 border border-amber-200/90 rounded-lg p-2.5">
+                    <strong>Remarks / Explanation:</strong> {ticket.statusReason || "No explanation provided."}
+                  </div>
+                  {onResume && (isAdmin || actorRole === "PPO" || actorRole === "President" || actorRole === "Finance") && (
+                    <div className="mt-2.5 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await onResume(ticket.id);
+                          onClose();
+                        }}
+                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                        <span>Resume Request</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Main Title and Status overview banner */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start bg-[#F5F1EC] border border-[#F0EAE4] p-4 rounded-lg">
               <div className="md:col-span-2 space-y-1">
@@ -503,6 +584,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                   <DeadlineBadge
                     severity={ticket.severity || (ticket.isEmergency ? "Emergency" : "Regular")}
                     deadline={ticket.deadline}
+                    status={ticket.status}
                     compact={false}
                   />
 
@@ -1427,136 +1509,187 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
             </div>
 
             {/* Row 2: Decisive Actions */}
-            {isAdmin && (
+            {ticket.status !== "Denied" && (
               <>
-                {/* School Head (President) Endorsement */}
-                {ticket.ppoApproved && !ticket.schoolHeadApproved && onSchoolHeadApprove && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSchoolHeadApprove(ticket.id);
-                      onClose();
-                    }}
-                    className="flex items-center justify-center gap-1.5 h-10 w-full rounded-lg bg-red-600 hover:bg-red-700 text-white font-mono font-bold text-xs transition-all cursor-pointer shadow-sm active:scale-[0.99]"
-                  >
-                    <CheckCircle className="w-4 h-4" />
-                    Endorse as President
-                  </button>
-                )}
-
-                {/* PPO Verify & Approve */}
-                {!ticket.ppoApproved && (
-                  <div className="flex items-center gap-2.5 w-full">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const est = modalPpoCost.trim() !== "" ? Number(modalPpoCost) : undefined;
-                        onApprove?.(ticket.id, est, ticket.isEmergency || modalEmergencyOverride);
-                        onClose();
-                      }}
-                      className="flex-1 flex items-center justify-center gap-2 h-10 px-5 rounded-lg bg-[#7C1D2D] hover:bg-[#661623] text-white font-mono font-bold text-xs transition-all cursor-pointer shadow-sm active:scale-[0.99]"
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                      <span>Verify &amp; Approve (PPO)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onOverride?.(ticket.id);
-                        onClose();
-                      }}
-                      className="shrink-0 flex items-center justify-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-[#DDD2C8] hover:bg-[#FAF7F5] font-mono font-bold text-xs text-[#7C1D2D] transition-all cursor-pointer shadow-2xs active:scale-[0.99]"
-                      title="Override assigned staff, priority, or details"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Override</span>
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-
-            {onUpdateStatus && (
-              <>
-                {ticket.status === "Pending" && (
-                  <button
-                    onClick={() => {
-                      onUpdateStatus(ticket.id, "In Progress");
-                      onClose();
-                    }}
-                    className="flex items-center justify-center gap-1.5 h-10 w-full rounded-lg bg-[#8C2331] text-white font-mono font-bold text-xs hover:bg-[#8C2331]/85 transition-colors cursor-pointer shadow-sm"
-                  >
-                    <Wrench className="w-4 h-4" />
-                    Start Work Now
-                  </button>
-                )}
-                {ticket.status === "In Progress" && (
-                  <button
-                    onClick={() => {
-                      onUpdateStatus(ticket.id, "Completed");
-                      onClose();
-                    }}
-                    className="flex items-center justify-center gap-1.5 h-10 w-full rounded-lg bg-emerald-600 text-white font-mono font-bold text-xs hover:bg-emerald-700 transition-colors cursor-pointer shadow-sm"
-                  >
-                    <CheckCircle className="w-4 h-4" />
-                    Mark Ticket Completed
-                  </button>
-                )}
-              </>
-            )}
-
-            {onFinanceApprove && ticket.ppoApproved && ticket.schoolHeadApproved && !ticket.financeApproved && (
-              <div className="flex flex-col gap-2.5 w-full bg-[#F0EAE4]/60 border border-[#E6DDD3]/50 rounded-xl p-3.5">
-                <div className="text-xs uppercase font-mono font-bold tracking-wider text-slate-600">
-                  Finance Funding Allocation &amp; Remarks
-                </div>
-                <div className="flex flex-col sm:flex-row gap-2.5">
-                  <div className="flex gap-2 shrink-0">
-                    <div className="flex items-center bg-white border border-[#E6DDD3] rounded-lg px-2.5 h-9 w-[115px]">
-                      <span className="text-sm text-slate-500 font-mono mr-1.5 shrink-0">Est ₱</span>
-                      <input
-                        type="number"
-                        placeholder="Est"
-                        className="w-full bg-transparent text-[#2B1210] text-xs font-mono focus:outline-none"
-                        value={modalFinanceEst}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setModalFinanceEst(val);
-                          if (!modalFinanceAppr) {
-                            setModalFinanceAppr(val);
-                          }
+                {isAdmin && (
+                  <>
+                    {/* School Head (President) Endorsement */}
+                    {ticket.ppoApproved && !ticket.schoolHeadApproved && onSchoolHeadApprove && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSchoolHeadApprove(ticket.id);
+                          onClose();
                         }}
-                      />
+                        className="flex items-center justify-center gap-1.5 h-10 w-full rounded-lg bg-red-600 hover:bg-red-700 text-white font-mono font-bold text-xs transition-all cursor-pointer shadow-sm active:scale-[0.99]"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        Endorse as President
+                      </button>
+                    )}
+
+                    {/* PPO Verify & Approve */}
+                    {!ticket.ppoApproved && (
+                      <div className="flex items-center gap-2.5 w-full">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const est = modalPpoCost.trim() !== "" ? Number(modalPpoCost) : undefined;
+                            onApprove?.(ticket.id, est, ticket.isEmergency || modalEmergencyOverride);
+                            onClose();
+                          }}
+                          className="flex-1 flex items-center justify-center gap-2 h-10 px-5 rounded-lg bg-[#7C1D2D] hover:bg-[#661623] text-white font-mono font-bold text-xs transition-all cursor-pointer shadow-sm active:scale-[0.99]"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                          <span>Verify &amp; Approve (PPO)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onOverride?.(ticket.id);
+                            onClose();
+                          }}
+                          className="shrink-0 flex items-center justify-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-[#DDD2C8] hover:bg-[#FAF7F5] font-mono font-bold text-xs text-[#7C1D2D] transition-all cursor-pointer shadow-2xs active:scale-[0.99]"
+                          title="Override assigned staff, priority, or details"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Override</span>
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {onUpdateStatus && (
+                  <>
+                    {ticket.status === "Pending" && (
+                      <button
+                        onClick={() => {
+                          onUpdateStatus(ticket.id, "In Progress");
+                          onClose();
+                        }}
+                        className="flex items-center justify-center gap-1.5 h-10 w-full rounded-lg bg-[#8C2331] text-white font-mono font-bold text-xs hover:bg-[#8C2331]/85 transition-colors cursor-pointer shadow-sm"
+                      >
+                        <Wrench className="w-4 h-4" />
+                        Start Work Now
+                      </button>
+                    )}
+                    {ticket.status === "In Progress" && (
+                      <button
+                        onClick={() => {
+                          onUpdateStatus(ticket.id, "Completed");
+                          onClose();
+                        }}
+                        className="flex items-center justify-center gap-1.5 h-10 w-full rounded-lg bg-emerald-600 text-white font-mono font-bold text-xs hover:bg-emerald-700 transition-colors cursor-pointer shadow-sm"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        Mark Ticket Completed
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {onFinanceApprove && ticket.ppoApproved && ticket.schoolHeadApproved && !ticket.financeApproved && (
+                  <div className="flex flex-col gap-2.5 w-full bg-[#F0EAE4]/60 border border-[#E6DDD3]/50 rounded-xl p-3.5">
+                    <div className="text-xs uppercase font-mono font-bold tracking-wider text-slate-600">
+                      Finance Funding Allocation &amp; Remarks
                     </div>
-                    <div className="flex items-center bg-white border border-[#E6DDD3] rounded-lg px-2.5 h-9 w-[115px]">
-                      <span className="text-sm text-slate-500 font-mono mr-1.5 shrink-0">Appr ₱</span>
+                    <div className="flex flex-col sm:flex-row gap-2.5">
+                      <div className="flex gap-2 shrink-0">
+                        <div className="flex items-center bg-white border border-[#E6DDD3] rounded-lg px-2.5 h-9 w-[115px]">
+                          <span className="text-sm text-slate-500 font-mono mr-1.5 shrink-0">Est ₱</span>
+                          <input
+                            type="number"
+                            placeholder="Est"
+                            className="w-full bg-transparent text-[#2B1210] text-xs font-mono focus:outline-none"
+                            value={modalFinanceEst}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setModalFinanceEst(val);
+                              if (!modalFinanceAppr) {
+                                setModalFinanceAppr(val);
+                              }
+                            }}
+                          />
+                        </div>
+                        <div className="flex items-center bg-white border border-[#E6DDD3] rounded-lg px-2.5 h-9 w-[115px]">
+                          <span className="text-sm text-slate-500 font-mono mr-1.5 shrink-0">Appr ₱</span>
+                          <input
+                            type="number"
+                            placeholder="Appr"
+                            className="w-full bg-transparent text-[#2B1210] text-xs font-mono focus:outline-none"
+                            value={modalFinanceAppr}
+                            onChange={(e) => setModalFinanceAppr(e.target.value)}
+                          />
+                        </div>
+                      </div>
                       <input
-                        type="number"
-                        placeholder="Appr"
-                        className="w-full bg-transparent text-[#2B1210] text-xs font-mono focus:outline-none"
-                        value={modalFinanceAppr}
-                        onChange={(e) => setModalFinanceAppr(e.target.value)}
+                        type="text"
+                        placeholder="Type notes or any additional information for this request..."
+                        className="flex-1 bg-white border border-[#E6DDD3] rounded-lg px-3 h-9 text-xs font-sans text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all placeholder:text-slate-400"
+                        value={modalFinanceNotes}
+                        onChange={(e) => setModalFinanceNotes(e.target.value)}
                       />
                     </div>
+                    <button
+                      onClick={() => {
+                        onFinanceApprove(ticket.id, Number(modalFinanceAppr), Number(modalFinanceEst), modalFinanceNotes);
+                        onClose();
+                      }}
+                      className="flex items-center justify-center gap-1.5 h-10 w-full rounded-lg bg-emerald-600 text-white font-mono font-bold text-xs hover:bg-emerald-700 transition-colors cursor-pointer shadow-sm"
+                    >
+                      <span className="w-4 h-4 flex items-center justify-center font-bold text-base leading-none">₱</span>
+                      Approve &amp; Fund
+                    </button>
                   </div>
-                  <input
-                    type="text"
-                    placeholder="Type notes or any additional information for this request..."
-                    className="flex-1 bg-white border border-[#E6DDD3] rounded-lg px-3 h-9 text-xs font-sans text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all placeholder:text-slate-400"
-                    value={modalFinanceNotes}
-                    onChange={(e) => setModalFinanceNotes(e.target.value)}
-                  />
-                </div>
-                <button
-                  onClick={() => {
-                    onFinanceApprove(ticket.id, Number(modalFinanceAppr), Number(modalFinanceEst), modalFinanceNotes);
-                    onClose();
-                  }}
-                  className="flex items-center justify-center gap-1.5 h-10 w-full rounded-lg bg-emerald-600 text-white font-mono font-bold text-xs hover:bg-emerald-700 transition-colors cursor-pointer shadow-sm"
-                >
-                  <span className="w-4 h-4 flex items-center justify-center font-bold text-base leading-none">₱</span>
-                  Approve &amp; Fund
-                </button>
+                )}
+              </>
+            )}
+
+            {/* Row 3: Administrative Deny & Suspend Actions (PPO, President, Finance) */}
+            {(isAdmin || onDeny || onSuspend) && (
+              <div className="flex items-center gap-2 w-full pt-1">
+                {ticket.status === "Denied" ? (
+                  <div className="w-full py-2.5 px-4 bg-rose-50 border border-rose-200 rounded-lg text-center text-xs font-mono font-bold text-rose-700">
+                    ❌ This request is DENIED. Standard workflow actions are closed.
+                  </div>
+                ) : (
+                  <>
+                    {onDeny && (
+                      <button
+                        type="button"
+                        onClick={() => setDenySuspendMode("deny")}
+                        className="flex-1 flex items-center justify-center gap-1.5 h-10 rounded-lg border border-rose-300 bg-rose-50/80 hover:bg-rose-100 text-rose-700 font-mono font-bold text-xs transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <Ban className="w-3.5 h-3.5" />
+                        <span>Deny Request</span>
+                      </button>
+                    )}
+                    {onSuspend && ticket.status !== "Suspended" && (
+                      <button
+                        type="button"
+                        onClick={() => setDenySuspendMode("suspend")}
+                        className="flex-1 flex items-center justify-center gap-1.5 h-10 rounded-lg border border-amber-300 bg-amber-50/80 hover:bg-amber-100 text-amber-800 font-mono font-bold text-xs transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <PauseCircle className="w-3.5 h-3.5" />
+                        <span>Suspend Request</span>
+                      </button>
+                    )}
+                    {onResume && ticket.status === "Suspended" && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await onResume(ticket.id);
+                          onClose();
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1.5 h-10 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-xs transition-colors cursor-pointer shadow-sm"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                        <span>Resume Request</span>
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
@@ -1564,6 +1697,24 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
 
         </div>
       </div>
+
+      {/* Interactive Deny / Suspend Remarks Modal */}
+      <DenySuspendModal
+        isOpen={denySuspendMode !== null}
+        mode={denySuspendMode || "deny"}
+        ticket={ticket}
+        actorRole={actorRole || (onFinanceApprove ? "Finance" : onSchoolHeadApprove ? "President" : "PPO")}
+        onConfirm={async (reason) => {
+          if (denySuspendMode === "deny" && onDeny) {
+            await onDeny(ticket.id, reason);
+            onClose();
+          } else if (denySuspendMode === "suspend" && onSuspend) {
+            await onSuspend(ticket.id, reason);
+            onClose();
+          }
+        }}
+        onClose={() => setDenySuspendMode(null)}
+      />
 
       <PrintableJobOrder ticket={ticket} />
     </>

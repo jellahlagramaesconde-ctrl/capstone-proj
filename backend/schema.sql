@@ -273,6 +273,11 @@ ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline TIMESTAMP;
 ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extended_at TIMESTAMP;
 ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extended_by_user_id INT REFERENCES users(id);
 ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extension_reason TEXT;
+ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_reason TEXT;
+ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_actor_role VARCHAR(50);
+ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS previous_status VARCHAR(20);
+ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_changed_by_user_id INT REFERENCES users(id);
+ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMP;
 
 CREATE TABLE IF NOT EXISTS job_order_photos (
     id           SERIAL PRIMARY KEY,

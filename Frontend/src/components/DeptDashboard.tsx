@@ -38,7 +38,7 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<JobOrder | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "In Progress" | "Completed">("All");
+  const [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "In Progress" | "Completed" | "Suspended" | "Denied">("All");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -170,6 +170,12 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
     if (statusFilter === "Completed") {
       return ticket.status === "Completed";
     }
+    if (statusFilter === "Suspended") {
+      return ticket.status === "Suspended";
+    }
+    if (statusFilter === "Denied") {
+      return ticket.status === "Denied";
+    }
     return true;
   });
 
@@ -287,6 +293,26 @@ export const DeptDashboard: React.FC<DeptDashboardProps> = ({
                     }`}
                 >
                   Completed ({tickets.filter(t => t.status === "Completed").length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("Suspended")}
+                  className={`px-2.5 py-0.5 rounded text-sm font-medium font-mono transition-all cursor-pointer ${statusFilter === "Suspended"
+                    ? "bg-amber-100 text-amber-800 border border-amber-300"
+                    : "text-slate-700 hover:bg-[#F0EAE4]"
+                    }`}
+                >
+                  On Hold ({tickets.filter(t => t.status === "Suspended").length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("Denied")}
+                  className={`px-2.5 py-0.5 rounded text-sm font-medium font-mono transition-all cursor-pointer ${statusFilter === "Denied"
+                    ? "bg-rose-100 text-rose-800 border border-rose-300"
+                    : "text-slate-700 hover:bg-[#F0EAE4]"
+                    }`}
+                >
+                  Denied ({tickets.filter(t => t.status === "Denied").length})
                 </button>
               </div>
             </div>

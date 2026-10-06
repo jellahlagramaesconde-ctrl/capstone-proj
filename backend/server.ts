@@ -1459,22 +1459,39 @@ app.get("/api/staff", authenticateToken, requireRole("PPO"), async (req, res) =>
 app.post("/api/staff/:id/skills", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
   try {
     const staffId = Number(req.params.id);
-    const { skillId, proficiency, yearsExperience } = req.body;
-    const level = Number(proficiency);
-    if (!Number.isInteger(skillId)) return res.status(400).json({ error: "A valid skillId is required." });
-    if (!Number.isInteger(level) || level < 1 || level > 5) {
-      return res.status(400).json({ error: "Proficiency must be an integer from 1 to 5." });
+    let { skillId, skillName, proficiency, yearsExperience } = req.body;
+
+    // If a skill name is typed instead of selecting an existing skill ID, resolve or insert it
+    if ((!skillId || typeof skillId !== "number") && typeof skillName === "string" && skillName.trim()) {
+      const cleanName = skillName.trim();
+      const findSkill = await pool.query("SELECT id FROM skills WHERE LOWER(name) = LOWER($1)", [cleanName]);
+      if (findSkill.rows.length > 0) {
+        skillId = findSkill.rows[0].id;
+      } else {
+        const insertSkill = await pool.query(
+          "INSERT INTO skills (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+          [cleanName]
+        );
+        skillId = insertSkill.rows[0].id;
+      }
     }
-    // Years of hands-on experience in this specific skill. Optional — defaults
-    // to 0 so existing callers that don't send it keep working. Capped at a
-    // sane upper bound to keep bad input (e.g. a stray extra digit) from
-    // silently dominating the match-score weighting in matchStaffForJobType().
-    const experience = yearsExperience === undefined || yearsExperience === null || yearsExperience === ""
+
+    if (!Number.isInteger(Number(skillId))) {
+      return res.status(400).json({ error: "Please provide a valid skill or skill name." });
+    }
+    skillId = Number(skillId);
+
+    // Proficiency is optional — defaults to 3 (competent)
+    const level = Number.isInteger(Number(proficiency)) && Number(proficiency) >= 1 && Number(proficiency) <= 5
+      ? Number(proficiency)
+      : 3;
+
+    // Years of experience is optional — defaults to 0 if omitted or empty
+    const rawExp = yearsExperience === undefined || yearsExperience === null || yearsExperience === ""
       ? 0
       : Number(yearsExperience);
-    if (!Number.isFinite(experience) || experience < 0 || experience > 60) {
-      return res.status(400).json({ error: "Years of experience must be a number from 0 to 60." });
-    }
+    const experience = Number.isFinite(rawExp) && rawExp >= 0 && rawExp <= 60 ? rawExp : 0;
+
     const staffCheck = await pool.query("SELECT id, name FROM staff WHERE id = $1", [staffId]);
     if (staffCheck.rows.length === 0) return res.status(404).json({ error: "Staff member not found." });
 
@@ -1485,9 +1502,9 @@ app.post("/api/staff/:id/skills", authenticateToken, requireRole("PPO"), async (
       [staffId, skillId, level, experience]
     );
     await pool.query("INSERT INTO logs (message) VALUES ($1)", [
-      `Skill proficiency updated for ${staffCheck.rows[0].name} by PPO Admin (${req.user?.username}).`,
+      `Skill assigned for ${staffCheck.rows[0].name} by PPO Admin (${req.user?.username}).`,
     ]);
-    res.json({ ok: true });
+    res.json({ ok: true, skillId });
   } catch (err: any) {
     console.error("Error assigning staff skill:", err);
     res.status(500).json({ error: "Failed to save skill assignment." });
@@ -2827,6 +2844,233 @@ app.post("/api/job-orders/finance-approve", authenticateToken, requireRole("Fina
   }
 });
 
+// Deny Job Order — PPO, President, Finance, Admin
+app.post("/api/job-orders/deny", authenticateToken, requireRole("PPO", "President", "Finance", "Admin"), async (req: AuthedRequest, res) => {
+  try {
+    const { id, reason } = req.body;
+    if (!reason || String(reason).trim().length < 5) {
+      return res.status(400).json({ error: "Remarks/explanation of at least 5 characters is required to deny a request." });
+    }
+    const existing = await pool.query("SELECT * FROM job_orders WHERE id = $1", [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ error: "Job Order not found." });
+    const oldTicket = existing.rows[0];
+    const oldStatus = oldTicket.status;
+
+    const actorRole = req.user?.role || "Admin";
+    const actorName = req.user?.fullName || req.user?.username || "Admin";
+    const actorId = req.user?.sub ?? null;
+    const cleanReason = String(reason).trim();
+
+    const updateResult = await pool.query(
+      `UPDATE job_orders
+       SET status = 'Denied',
+           status_reason = $2,
+           status_actor_role = $3,
+           status_changed_at = NOW(),
+           status_changed_by_user_id = $4
+       WHERE id = $1 RETURNING *`,
+      [id, cleanReason, actorRole, actorId]
+    );
+    const ticket = mapJobOrderRow(updateResult.rows[0]);
+
+    // Insert into approval_audit_log
+    await pool.query(
+      `INSERT INTO approval_audit_log (job_order_id, actor_user_id, action, previous_value, new_value, reason)
+       VALUES ($1, $2, 'ticket_denied', $3, 'status: Denied', $4)`,
+      [id, actorId, `status: ${oldStatus}`, cleanReason]
+    );
+
+    // Insert into logs
+    await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
+      `Job Order ${id} was DENIED by ${actorRole} (${actorName}). Remarks: "${cleanReason}"`,
+      id,
+    ]);
+
+    // Notify Department
+    await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
+      `n_${Date.now()}_deny`,
+      `❌ Your request ${id} was DENIED by ${actorRole}. Remarks: "${cleanReason}"`,
+      id,
+    ]);
+    void notifyDeptByEmail(
+      ticket.office,
+      `Request Denied — ${id}`,
+      `Your request ${id} has been DENIED by ${actorRole} (${actorName}).\n\nRemarks/Explanation: "${cleanReason}"`,
+      id
+    );
+
+    if (actorRole !== "PPO") {
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'PPO', $3)", [
+        `n_${Date.now()}_ppo_deny`,
+        `Job Order ${id} (${ticket.office}) was DENIED by ${actorRole} (${actorName}). Remarks: "${cleanReason}"`,
+        id,
+      ]);
+    }
+
+    res.json(ticket);
+  } catch (err: any) {
+    console.error("Error denying job order:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Suspend Job Order — PPO, President, Finance, Admin
+app.post("/api/job-orders/suspend", authenticateToken, requireRole("PPO", "President", "Finance", "Admin"), async (req: AuthedRequest, res) => {
+  try {
+    const { id, reason } = req.body;
+    if (!reason || String(reason).trim().length < 5) {
+      return res.status(400).json({ error: "Remarks/explanation of at least 5 characters is required to suspend a request." });
+    }
+    const existing = await pool.query("SELECT * FROM job_orders WHERE id = $1", [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ error: "Job Order not found." });
+    const oldTicket = existing.rows[0];
+    const oldStatus = oldTicket.status;
+
+    const actorRole = req.user?.role || "Admin";
+    const actorName = req.user?.fullName || req.user?.username || "Admin";
+    const actorId = req.user?.sub ?? null;
+    const cleanReason = String(reason).trim();
+
+    const updateResult = await pool.query(
+      `UPDATE job_orders
+       SET previous_status = status,
+           status = 'Suspended',
+           status_reason = $2,
+           status_actor_role = $3,
+           status_changed_at = NOW(),
+           status_changed_by_user_id = $4
+       WHERE id = $1 RETURNING *`,
+      [id, cleanReason, actorRole, actorId]
+    );
+    const ticket = mapJobOrderRow(updateResult.rows[0]);
+
+    // Insert into approval_audit_log
+    await pool.query(
+      `INSERT INTO approval_audit_log (job_order_id, actor_user_id, action, previous_value, new_value, reason)
+       VALUES ($1, $2, 'ticket_suspended', $3, 'status: Suspended', $4)`,
+      [id, actorId, `status: ${oldStatus}`, cleanReason]
+    );
+
+    // Insert into logs
+    await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
+      `Job Order ${id} was SUSPENDED by ${actorRole} (${actorName}). Remarks: "${cleanReason}"`,
+      id,
+    ]);
+
+    // Notify Department
+    await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
+      `n_${Date.now()}_suspend`,
+      `⏸️ Your request ${id} was SUSPENDED (placed on hold) by ${actorRole}. Remarks: "${cleanReason}"`,
+      id,
+    ]);
+    void notifyDeptByEmail(
+      ticket.office,
+      `Request Suspended (On Hold) — ${id}`,
+      `Your request ${id} has been SUSPENDED (placed on hold) by ${actorRole} (${actorName}).\n\nRemarks/Reason: "${cleanReason}"`,
+      id
+    );
+
+    if (ticket.assignedStaff && ticket.assignedStaff !== "Unassigned") {
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Staff', $3)", [
+        `n_${Date.now()}_stf_suspend`,
+        `Job Order ${id} has been suspended by ${actorRole}. Remarks: "${cleanReason}"`,
+        id,
+      ]);
+    }
+
+    if (actorRole !== "PPO") {
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'PPO', $3)", [
+        `n_${Date.now()}_ppo_suspend`,
+        `Job Order ${id} (${ticket.office}) was SUSPENDED by ${actorRole} (${actorName}). Remarks: "${cleanReason}"`,
+        id,
+      ]);
+    }
+
+    res.json(ticket);
+  } catch (err: any) {
+    console.error("Error suspending job order:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Resume Suspended Job Order — PPO, President, Finance, Admin
+app.post("/api/job-orders/resume", authenticateToken, requireRole("PPO", "President", "Finance", "Admin"), async (req: AuthedRequest, res) => {
+  try {
+    const { id, reason } = req.body;
+    const existing = await pool.query("SELECT * FROM job_orders WHERE id = $1", [id]);
+    if (existing.rows.length === 0) return res.status(404).json({ error: "Job Order not found." });
+    const oldTicket = existing.rows[0];
+    if (oldTicket.status !== "Suspended") {
+      return res.status(400).json({ error: "Only suspended job orders can be resumed." });
+    }
+
+    const actorRole = req.user?.role || "Admin";
+    const actorName = req.user?.fullName || req.user?.username || "Admin";
+    const actorId = req.user?.sub ?? null;
+    const resumeStatus = oldTicket.previous_status || "In Progress";
+    const cleanReason = reason ? String(reason).trim() : `Resumed by ${actorRole} (${actorName})`;
+
+    const updateResult = await pool.query(
+      `UPDATE job_orders
+       SET status = $2,
+           status_reason = NULL,
+           status_actor_role = NULL,
+           status_changed_at = NOW(),
+           status_changed_by_user_id = $3
+       WHERE id = $1 RETURNING *`,
+      [id, resumeStatus, actorId]
+    );
+    const ticket = mapJobOrderRow(updateResult.rows[0]);
+
+    // Insert into approval_audit_log
+    await pool.query(
+      `INSERT INTO approval_audit_log (job_order_id, actor_user_id, action, previous_value, new_value, reason)
+       VALUES ($1, $2, 'ticket_resumed', 'status: Suspended', $3, $4)`,
+      [id, actorId, `status: ${resumeStatus}`, cleanReason]
+    );
+
+    // Insert into logs
+    await pool.query("INSERT INTO logs (message, ticket_id) VALUES ($1, $2)", [
+      `Job Order ${id} has been RESUMED by ${actorRole} (${actorName}). Status set back to ${resumeStatus.toUpperCase()}.`,
+      id,
+    ]);
+
+    // Notify Department
+    await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Dept', $3)", [
+      `n_${Date.now()}_resume`,
+      `▶️ Your request ${id} has been RESUMED and is now ${resumeStatus}.`,
+      id,
+    ]);
+    void notifyDeptByEmail(
+      ticket.office,
+      `Request Resumed — ${id}`,
+      `Your request ${id} has been reactivated and resumed by ${actorRole} (${actorName}). Status: ${resumeStatus}.`,
+      id
+    );
+
+    if (ticket.assignedStaff && ticket.assignedStaff !== "Unassigned") {
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'Staff', $3)", [
+        `n_${Date.now()}_stf_resume`,
+        `Job Order ${id} is active again (${resumeStatus}). Resume work when ready.`,
+        id,
+      ]);
+    }
+
+    if (actorRole !== "PPO") {
+      await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'PPO', $3)", [
+        `n_${Date.now()}_ppo_resume`,
+        `Job Order ${id} (${ticket.office}) was RESUMED by ${actorRole} (${actorName}). Status: ${resumeStatus}.`,
+        id,
+      ]);
+    }
+
+    res.json(ticket);
+  } catch (err: any) {
+    console.error("Error resuming job order:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------------------------------------------------------------
 // BUDGET REQUISITION LINE ITEMS
 // The PPO's itemized version of the paper Budget Requisition Form
@@ -3134,6 +3378,11 @@ async function applySchemaMigrations() {
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extended_at TIMESTAMP");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extended_by_user_id INT REFERENCES users(id)");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extension_reason TEXT");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_reason TEXT");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_actor_role VARCHAR(50)");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS previous_status VARCHAR(20)");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_changed_by_user_id INT REFERENCES users(id)");
+    await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMP");
 
     // Backfill deadlines for old tickets that were created before the deadline
     // column existed. Uses the same SLA windows as computeDeadline() so values

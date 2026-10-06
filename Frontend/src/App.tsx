@@ -804,12 +804,27 @@ export default function App() {
     }
   };
 
-  const handleAssignStaffSkill = async (staffId: number, skillId: number, proficiency: number, yearsExperience: number) => {
+  const handleAssignStaffSkill = async (
+    staffId: number,
+    skillIdOrName: number | string,
+    proficiency?: number,
+    yearsExperience?: number
+  ) => {
     try {
+      const payload: any = {
+        proficiency: proficiency ?? 3,
+        yearsExperience: yearsExperience ?? 0,
+      };
+      if (typeof skillIdOrName === "number") {
+        payload.skillId = skillIdOrName;
+      } else {
+        payload.skillName = String(skillIdOrName).trim();
+      }
+
       const res = await authedFetch(`/api/staff/${staffId}/skills`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ skillId, proficiency, yearsExperience }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (res.ok) {
@@ -1159,7 +1174,7 @@ export default function App() {
   };
 
   // Status Change (Screen 3 & general) — now also accepts optional completion remarks
-  const handleUpdateStatus = async (id: string, status: "Pending" | "In Progress" | "Completed", completionRemarks?: string) => {
+  const handleUpdateStatus = async (id: string, status: "Pending" | "In Progress" | "Completed" | "Denied" | "Suspended", completionRemarks?: string) => {
     try {
       const res = await authedFetch("/api/job-orders/status", {
         method: "POST",
@@ -1290,6 +1305,72 @@ export default function App() {
     }
   };
 
+  // Deny Job Order (PPO, President, Finance, Admin)
+  const handleDenyTicket = async (id: string, reason: string) => {
+    try {
+      const res = await authedFetch("/api/job-orders/deny", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, reason }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        const message = (errorData && errorData.error) || `${res.status} ${res.statusText}`;
+        throw new Error(message);
+      }
+      await fetchDatabase();
+    } catch (err: any) {
+      console.error(err);
+      const message = err?.message || "Failed to deny request.";
+      alert(`Unable to deny request: ${message}`);
+      throw err;
+    }
+  };
+
+  // Suspend Job Order (PPO, President, Finance, Admin)
+  const handleSuspendTicket = async (id: string, reason: string) => {
+    try {
+      const res = await authedFetch("/api/job-orders/suspend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, reason }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        const message = (errorData && errorData.error) || `${res.status} ${res.statusText}`;
+        throw new Error(message);
+      }
+      await fetchDatabase();
+    } catch (err: any) {
+      console.error(err);
+      const message = err?.message || "Failed to suspend request.";
+      alert(`Unable to suspend request: ${message}`);
+      throw err;
+    }
+  };
+
+  // Resume Suspended Job Order (PPO, President, Finance, Admin)
+  const handleResumeTicket = async (id: string, reason?: string) => {
+    try {
+      const res = await authedFetch("/api/job-orders/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, reason }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        const message = (errorData && errorData.error) || `${res.status} ${res.statusText}`;
+        throw new Error(message);
+      }
+      await fetchDatabase();
+    } catch (err: any) {
+      console.error(err);
+      const message = err?.message || "Failed to resume request.";
+      alert(`Unable to resume request: ${message}`);
+      throw err;
+    }
+  };
+
   // PPO: save the itemized budget requisition for a job order — replaces
   // the whole line-item list, and the backend recomputes/writes the total
   // onto that job order's estimated_cost so the existing PPO/Finance
@@ -1316,8 +1397,8 @@ export default function App() {
     assignedStaff: string,
     priorityScore: number,
     rationale: string,
-    confirmOverride: boolean = false,
-    teamStaffIds?: number[]
+    teamStaffIds?: number[],
+    confirmOverride: boolean = false
   ): Promise<{ ok: boolean; error?: string }> => {
     try {
       const res = await authedFetch("/api/job-orders/override", {
@@ -1333,7 +1414,7 @@ export default function App() {
         if (errorData?.warning) {
           const proceed = window.confirm(errorData.error);
           if (proceed) {
-            return await handleOverride(id, assignedStaff, priorityScore, rationale, true, teamStaffIds);
+            return await handleOverride(id, assignedStaff, priorityScore, rationale, teamStaffIds, true);
           }
           return { ok: false, error: "Override cancelled due to capacity warning." };
         }
@@ -2074,6 +2155,9 @@ export default function App() {
                   onPpoBypassPresident={handlePpoBypassPresident}
                   onSaveBudgetItems={handleSaveBudgetItems}
                   onExtendDeadline={handleExtendDeadline}
+                  onDeny={handleDenyTicket}
+                  onSuspend={handleSuspendTicket}
+                  onResume={handleResumeTicket}
                   onSubmitRequest={handleSubmitRequest}
                   isSubmitting={isSubmitting}
                   officeOptions={[...Object.values(DEPT_OFFICE_LABELS), ...ADMIN_OFFICE_LABELS]}
@@ -2088,6 +2172,9 @@ export default function App() {
                 <SchoolHeadDashboard
                   tickets={jobOrders}
                   onSchoolHeadApprove={handleSchoolHeadApprove}
+                  onDeny={handleDenyTicket}
+                  onSuspend={handleSuspendTicket}
+                  onResume={handleResumeTicket}
                   displayName={authUser?.fullName}
                   onSubmitRequest={handleSubmitRequest}
                   isSubmitting={isSubmitting}
@@ -2102,6 +2189,9 @@ export default function App() {
                 <FinanceDashboard
                   tickets={jobOrders}
                   onFinanceApprove={handleFinanceApprove}
+                  onDeny={handleDenyTicket}
+                  onSuspend={handleSuspendTicket}
+                  onResume={handleResumeTicket}
                   onSubmitRequest={handleSubmitRequest}
                   isSubmitting={isSubmitting}
                   officeOptions={[...Object.values(DEPT_OFFICE_LABELS), ...ADMIN_OFFICE_LABELS]}

@@ -20,7 +20,7 @@ export interface JobOrder {
   peopleAffected: number;
   resourceCost: number;
   priorityScore: number;
-  status: "Pending" | "In Progress" | "Completed";
+  status: "Pending" | "In Progress" | "Completed" | "Denied" | "Suspended";
   assignedStaff: string;
   matchScore: number;
   assignedStaffList?: { id: number; name: string; matchScore: number; isLead: boolean }[];
@@ -39,6 +39,14 @@ export interface JobOrder {
   approvedAmount?: number;
   financeNotes?: string;
   completionRemarks?: string;
+  requestedByName?: string;
+  requestedBy?: string;
+  // Status reasons & denial/suspension attribution
+  statusReason?: string;
+  statusActorRole?: string;
+  previousStatus?: "Pending" | "In Progress";
+  statusChangedAt?: string;
+  statusChangedByUserId?: number;
   // Itemized budget requisition breakdown — only present in API responses
   // for PPO/Finance/President (Dept/Staff never receive these fields).
   budgetItems?: BudgetItem[];

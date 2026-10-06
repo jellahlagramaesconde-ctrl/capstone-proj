@@ -5,6 +5,7 @@ interface DeadlineBadgeProps {
   severity?: "Regular" | "Moderate" | "Emergency";
   deadline?: string;            // ISO timestamp
   isCompleted?: boolean;
+  status?: "Pending" | "In Progress" | "Completed" | "Denied" | "Suspended";
   /** If provided, renders an "Extend" button (PPO-only use) */
   onExtend?: () => void;
   /** Show compact version (no label text, just icon + time) */
@@ -52,17 +53,23 @@ export const DeadlineBadge: React.FC<DeadlineBadgeProps> = ({
   severity = "Regular",
   deadline,
   isCompleted = false,
+  status,
   onExtend,
   compact = false,
 }) => {
   const [, setTick] = useState(0);
 
-  // Re-render every minute so the countdown stays live
+  const isSuspended = status === "Suspended";
+  const isDenied = status === "Denied";
+  const isDone = isCompleted || status === "Completed";
+  const isInactive = isDone || isSuspended || isDenied;
+
+  // Re-render every minute so the countdown stays live (if active)
   useEffect(() => {
-    if (!deadline || isCompleted) return;
+    if (!deadline || isInactive) return;
     const interval = setInterval(() => setTick((t) => t + 1), 60_000);
     return () => clearInterval(interval);
-  }, [deadline, isCompleted]);
+  }, [deadline, isInactive]);
 
   const cfg = SEVERITY_CONFIG[severity] ?? SEVERITY_CONFIG.Regular;
 
@@ -76,8 +83,14 @@ export const DeadlineBadge: React.FC<DeadlineBadgeProps> = ({
   }
 
   const deadlineDate = new Date(deadline);
-  const isOverdue = !isCompleted && deadlineDate.getTime() < Date.now();
-  const countdown = isCompleted ? "Completed" : formatCountdown(deadlineDate, severity === "Emergency");
+  const isOverdue = !isInactive && deadlineDate.getTime() < Date.now();
+  const countdown = isDenied
+    ? "CANCELLED"
+    : isSuspended
+    ? "PAUSED"
+    : isDone
+    ? "Completed"
+    : formatCountdown(deadlineDate, severity === "Emergency");
 
   if (compact) {
     return (
@@ -86,9 +99,13 @@ export const DeadlineBadge: React.FC<DeadlineBadgeProps> = ({
         className={`inline-flex items-center gap-1 text-xs font-mono font-bold px-2 py-0.5 rounded-full border
           ${isOverdue
             ? "bg-red-100 text-red-700 border-red-400 animate-pulse"
-            : isCompleted
-              ? "bg-emerald-100 text-emerald-700 border-emerald-300"
-              : cfg.pill}`}
+            : isDenied
+              ? "bg-slate-100 text-slate-500 border-slate-300 line-through"
+              : isSuspended
+                ? "bg-amber-100 text-amber-800 border-amber-300"
+                : isDone
+                  ? "bg-emerald-100 text-emerald-700 border-emerald-300"
+                  : cfg.pill}`}
       >
         <Clock className="w-3 h-3" />
         <span>{isOverdue ? "OVERDUE" : countdown}</span>
@@ -110,9 +127,13 @@ export const DeadlineBadge: React.FC<DeadlineBadgeProps> = ({
         className={`inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded-full border
           ${isOverdue
             ? "bg-red-100 text-red-700 border-red-400 font-bold animate-pulse"
-            : isCompleted
-              ? "bg-emerald-100 text-emerald-700 border-emerald-300"
-              : "bg-slate-100 text-slate-600 border-slate-300"}`}
+            : isDenied
+              ? "bg-slate-100 text-slate-500 border-slate-300 font-mono line-through"
+              : isSuspended
+                ? "bg-amber-100 text-amber-800 border-amber-300 font-mono font-semibold"
+                : isDone
+                  ? "bg-emerald-100 text-emerald-700 border-emerald-300"
+                  : "bg-slate-100 text-slate-600 border-slate-300"}`}
       >
         {isOverdue ? (
           <AlertTriangle className="w-3 h-3" />
@@ -123,7 +144,7 @@ export const DeadlineBadge: React.FC<DeadlineBadgeProps> = ({
       </span>
 
       {/* PPO Extend button */}
-      {onExtend && !isCompleted && (
+      {onExtend && !isInactive && (
         <button
           type="button"
           onClick={onExtend}

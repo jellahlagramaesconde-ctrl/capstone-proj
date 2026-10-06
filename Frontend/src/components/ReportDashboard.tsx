@@ -477,6 +477,9 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
     finance_approve:      { label: "Finance Approved",    color: "bg-violet-100 text-violet-800 border-violet-200" },
     staff_completed:      { label: "Completed",           color: "bg-slate-100 text-slate-700 border-slate-200" },
     DEADLINE_EXTENDED:    { label: "Deadline Extended",   color: "bg-orange-100 text-orange-800 border-orange-200" },
+    ticket_denied:        { label: "Denied",              color: "bg-rose-100 text-rose-800 border-rose-200" },
+    ticket_suspended:     { label: "Suspended",           color: "bg-amber-100 text-amber-800 border-amber-200" },
+    ticket_resumed:       { label: "Resumed",             color: "bg-teal-100 text-teal-800 border-teal-200" },
   };
 
   const auditActions = ["All", ...Object.keys(actionMeta)];
@@ -710,6 +713,8 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
                             <span className={
                               cell === "Completed" ? "bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded border border-emerald-200" :
                               cell === "In Progress" ? "bg-cyan-50 text-cyan-700 font-bold px-2 py-0.5 rounded border border-cyan-200" :
+                              cell === "Denied" ? "bg-rose-50 text-rose-700 font-bold px-2 py-0.5 rounded border border-rose-200" :
+                              cell === "Suspended" ? "bg-amber-50 text-amber-700 font-bold px-2 py-0.5 rounded border border-amber-200" :
                               "bg-[#6B1420]/10 text-[#6B1420] font-bold px-2 py-0.5 rounded border border-[#6B1420]/20"
                             }>{cell}</span>
                           ) : cIdx === 8 ? (
