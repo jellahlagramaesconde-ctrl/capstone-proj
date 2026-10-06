@@ -3135,6 +3135,19 @@ async function applySchemaMigrations() {
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extended_by_user_id INT REFERENCES users(id)");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS deadline_extension_reason TEXT");
 
+    // Backfill deadlines for old tickets that were created before the deadline
+    // column existed. Uses the same SLA windows as computeDeadline() so values
+    // are consistent with new submissions. Only touches rows where deadline IS NULL.
+    await pool.query(`
+      UPDATE job_orders
+      SET deadline = CASE
+        WHEN severity = 'Emergency' THEN date_submitted + INTERVAL '4 hours'
+        WHEN severity = 'Moderate'  THEN date_submitted + INTERVAL '2 days'
+        ELSE                             date_submitted + INTERVAL '5 days'
+      END
+      WHERE deadline IS NULL
+    `);
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS app_settings (
         key VARCHAR(100) PRIMARY KEY,

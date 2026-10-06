@@ -537,7 +537,26 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                           hour: "2-digit",
                           minute: "2-digit",
                         })
-                      : "Calculating from SLA defaults..."}
+                      : (() => {
+                          // Estimate client-side from dateSubmitted + SLA windows
+                          const base = ticket.dateSubmitted ? new Date(ticket.dateSubmitted) : null;
+                          if (!base || isNaN(base.getTime())) return "Not yet assigned";
+                          const sev = ticket.severity || (ticket.isEmergency ? "Emergency" : "Regular");
+                          const offsetMs =
+                            sev === "Emergency" ? 4 * 60 * 60 * 1000 :
+                            sev === "Moderate"  ? 2 * 24 * 60 * 60 * 1000 :
+                                                  5 * 24 * 60 * 60 * 1000;
+                          const est = new Date(base.getTime() + offsetMs);
+                          return (
+                            <span title="Estimated from submission date + SLA defaults">
+                              {est.toLocaleString(undefined, {
+                                weekday: "short", month: "short", day: "numeric",
+                                year: "numeric", hour: "2-digit", minute: "2-digit",
+                              })}
+                              <span className="text-slate-400 font-normal italic ml-1">(est.)</span>
+                            </span>
+                          );
+                        })()}
                   </span>
                 </div>
 

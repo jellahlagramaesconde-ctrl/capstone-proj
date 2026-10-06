@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { jsPDF } from "jspdf";
 import { JobOrder, AuditLogEntry } from "../types";
 import { formatPeso } from "../priceUtils";
 import {
@@ -53,33 +54,133 @@ const downloadCSV = (filename: string, rows: (string | number)[][]) => {
   document.body.removeChild(a);
 };
 
-// Opens a clean print-ready window; choose "Save as PDF" in the print dialog.
-const openPrintWindow = (title: string, bodyHtml: string) => {
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title>
-<style>
-  body{font-family:Arial,Helvetica,sans-serif;color:#2B1210;padding:32px;line-height:1.5}
-  h1{font-size:20px;margin:0 0 4px;color:#6B1420}
-  h2{font-size:16px;margin:18px 0 6px;color:#6B1420}
-  h3{font-size:14px;margin:14px 0 4px}
-  p{font-size:12px;margin:4px 0}
-  .meta{color:#555;margin-bottom:18px}
-  table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
-  th,td{border:1px solid #ddd2c8;padding:7px 10px;text-align:left}
-  th{background:#f0eae4}
-  td.n,th.n{text-align:right}
-  tfoot td{font-weight:bold;background:#f5f1ec}
-  ul{font-size:13px;padding-left:20px}
-</style></head><body>${bodyHtml}</body></html>`;
-  const w = window.open("", "_blank", "width=900,height=700");
-  if (!w) {
-    alert("Please allow pop-ups to export the PDF.");
-    return;
+// ---------------------------------------------------------------------------
+// savePDF — builds a PDF in-memory with jsPDF and triggers an immediate
+// file download. No print dialog, no popup window required.
+// ---------------------------------------------------------------------------
+type PdfSection =
+  | { type: "title"; text: string }
+  | { type: "meta"; text: string }
+  | { type: "heading"; text: string }
+  | { type: "bullet"; text: string }
+  | { type: "table"; headers: string[]; rows: string[][]; footerRow?: string[] };
+
+const savePDF = (filename: string, sections: PdfSection[]) => {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginL = 18;
+  const marginR = 18;
+  const contentW = pageW - marginL - marginR;
+  let y = 20;
+
+  const checkPage = (needed: number) => {
+    if (y + needed > pageH - 16) {
+      doc.addPage();
+      y = 20;
+    }
+  };
+
+  for (const section of sections) {
+    if (section.type === "title") {
+      checkPage(12);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.setTextColor(107, 20, 32); // #6B1420
+      doc.text(section.text, marginL, y);
+      y += 9;
+
+    } else if (section.type === "meta") {
+      checkPage(6);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(100, 100, 100);
+      doc.text(section.text, marginL, y);
+      y += 7;
+
+    } else if (section.type === "heading") {
+      checkPage(10);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(107, 20, 32);
+      doc.text(section.text, marginL, y);
+      y += 7;
+
+    } else if (section.type === "bullet") {
+      checkPage(6);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(43, 18, 16);
+      const lines = doc.splitTextToSize(`• ${section.text}`, contentW - 4);
+      doc.text(lines, marginL + 3, y);
+      y += lines.length * 5.5;
+
+    } else if (section.type === "table") {
+      const { headers, rows, footerRow } = section;
+      const allRows = [...rows, ...(footerRow ? [footerRow] : [])];
+      // Fixed column widths: distribute evenly
+      const colW = contentW / headers.length;
+      const rowH = 7;
+      const headerH = 7;
+
+      checkPage(headerH + 4);
+      // Header row
+      doc.setFillColor(240, 234, 228); // #f0eae4
+      doc.setDrawColor(221, 210, 200);
+      doc.rect(marginL, y, contentW, headerH, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(43, 18, 16);
+      headers.forEach((h, i) => {
+        const cellX = marginL + i * colW;
+        doc.text(h, cellX + 2, y + 4.8, { maxWidth: colW - 4 });
+      });
+      y += headerH;
+
+      allRows.forEach((row, ri) => {
+        checkPage(rowH + 2);
+        const isFooter = footerRow && ri === allRows.length - 1;
+        if (isFooter) {
+          doc.setFillColor(245, 241, 236); // #f5f1ec
+          doc.rect(marginL, y, contentW, rowH, "FD");
+          doc.setFont("helvetica", "bold");
+        } else {
+          doc.setFillColor(ri % 2 === 0 ? 255 : 250, ri % 2 === 0 ? 255 : 248, ri % 2 === 0 ? 255 : 246);
+          doc.rect(marginL, y, contentW, rowH, "FD");
+          doc.setFont("helvetica", "normal");
+        }
+        doc.setFontSize(9);
+        doc.setTextColor(43, 18, 16);
+        row.forEach((cell, i) => {
+          const cellX = marginL + i * colW;
+          const txt = doc.splitTextToSize(String(cell), colW - 4);
+          doc.text(txt[0] ?? "", cellX + 2, y + 4.8);
+        });
+        // Row border
+        doc.setDrawColor(221, 210, 200);
+        doc.rect(marginL, y, contentW, rowH);
+        y += rowH;
+      });
+      y += 6;
+    }
   }
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  setTimeout(() => w.print(), 300);
+
+  // Footer on every page
+  const pageCount = (doc.internal as any).getNumberOfPages?.() ?? 1;
+  for (let p = 1; p <= pageCount; p++) {
+    doc.setPage(p);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text(
+      `COSCA Facilities Portal  ·  Page ${p} of ${pageCount}  ·  Confidential`,
+      pageW / 2,
+      pageH - 8,
+      { align: "center" }
+    );
+  }
+
+  doc.save(filename);
 };
 
 // Minimal Markdown renderer for the AI report (headers, bullets, bold, tables).
@@ -278,34 +379,27 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
     ]);
   };
 
-  // Full report PDF: summary + department table
+  // Full report PDF: summary + department table — saves a .pdf file directly.
   const handleExportDepartmentPDF = () => {
     if (departmentChartData.length === 0) return;
-    const rowsHtml = departmentChartData
-      .map(
-        (d) =>
-          `<tr><td>${escHtml(d.name)}</td><td class="n">${d.total}</td><td class="n">${d.completed}</td><td class="n">${d.open}</td></tr>`
-      )
-      .join("");
     const avg = stats.avgDays !== null ? `${stats.avgDays.toFixed(1)} days` : "N/A";
-    openPrintWindow(
-      "COSCA Facilities Report",
-      `<h1>COSCA Facilities Report</h1>
-<p class="meta">${escHtml(rangeMeta.label)} · Generated ${new Date().toLocaleString()}</p>
-<h2>Summary</h2>
-<ul>
-  <li>Total requests: <b>${stats.total}</b></li>
-  <li>Completed: <b>${stats.completedCount}</b> (${stats.completionRate}%)</li>
-  <li>Open backlog: <b>${stats.open}</b> (overdue: ${stats.overdue})</li>
-  <li>Average completion time: <b>${avg}</b></li>
-  <li>Total approved cost: <b>${escHtml(formatPeso(stats.totalApproved))}</b></li>
-</ul>
-<h2>Requests by Department</h2>
-<table><thead><tr><th>Department</th><th class="n">Total</th><th class="n">Completed</th><th class="n">Open</th></tr></thead>
-<tbody>${rowsHtml}</tbody>
-<tfoot><tr><td>All Departments</td><td class="n">${stats.total}</td><td class="n">${stats.completedCount}</td><td class="n">${stats.open}</td></tr></tfoot>
-</table>`
-    );
+    savePDF(`COSCA_Facilities_Report_${stamp}.pdf`, [
+      { type: "title",   text: "COSCA Facilities Report" },
+      { type: "meta",    text: `${rangeMeta.label}  ·  Generated ${new Date().toLocaleString()}` },
+      { type: "heading", text: "Summary" },
+      { type: "bullet",  text: `Total requests: ${stats.total}` },
+      { type: "bullet",  text: `Completed: ${stats.completedCount} (${stats.completionRate}%)` },
+      { type: "bullet",  text: `Open backlog: ${stats.open}  (overdue: ${stats.overdue})` },
+      { type: "bullet",  text: `Average completion time: ${avg}` },
+      { type: "bullet",  text: `Total approved cost: ${formatPeso(stats.totalApproved)}` },
+      { type: "heading", text: "Requests by Department" },
+      {
+        type: "table",
+        headers: ["Department", "Total", "Completed", "Open"],
+        rows: departmentChartData.map((d) => [d.name, String(d.total), String(d.completed), String(d.open)]),
+        footerRow: ["All Departments", String(stats.total), String(stats.completedCount), String(stats.open)],
+      },
+    ]);
   };
 
   // AI Insights
@@ -340,22 +434,20 @@ export const ReportDashboard: React.FC<ReportDashboardProps> = ({ tickets, authe
 
   const printAiReport = () => {
     if (!aiReport) return;
-    const body = aiReport
-      .split(/\r?\n/)
-      .map((l) => {
-        const t = l.trim();
-        if (!t) return "";
-        const bold = (s: string) => escHtml(s).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
-        if (/^#{1,2}\s/.test(t)) return `<h2>${bold(t.replace(/^#+\s*/, ""))}</h2>`;
-        if (/^#{3,}\s/.test(t)) return `<h3>${bold(t.replace(/^#+\s*/, ""))}</h3>`;
-        if (/^[-*]\s/.test(t)) return `<ul><li>${bold(t.replace(/^[-*]\s+/, ""))}</li></ul>`;
-        return `<p>${bold(t)}</p>`;
-      })
-      .join("");
-    openPrintWindow(
-      "COSCA Smart Insights",
-      `<h1>COSCA Facilities Insights</h1><p class="meta">${escHtml(rangeMeta.label)} · Generated ${new Date().toLocaleString()}</p>${body}`
-    );
+    const sections: PdfSection[] = [
+      { type: "title",   text: "COSCA Facilities Insights" },
+      { type: "meta",    text: `${rangeMeta.label}  ·  Generated ${new Date().toLocaleString()}` },
+    ];
+    aiReport.split(/\r?\n/).forEach((line) => {
+      const t = line.trim();
+      if (!t) return;
+      const plain = t.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/^#+\s*/, "").replace(/^[-*]\s+/, "");
+      if (/^#{1,2}\s/.test(t))  sections.push({ type: "heading", text: plain });
+      else if (/^#{3,}\s/.test(t)) sections.push({ type: "heading", text: plain });
+      else if (/^[-*]\s/.test(t)) sections.push({ type: "bullet",  text: plain });
+      else                          sections.push({ type: "bullet",  text: plain });
+    });
+    savePDF(`COSCA_Smart_Insights_${stamp}.pdf`, sections);
   };
 
   // Fetch audit log
