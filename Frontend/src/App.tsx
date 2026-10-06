@@ -2174,7 +2174,6 @@ export default function App() {
                   onSchoolHeadApprove={handleSchoolHeadApprove}
                   onDeny={handleDenyTicket}
                   onSuspend={handleSuspendTicket}
-                  onResume={handleResumeTicket}
                   displayName={authUser?.fullName}
                   onSubmitRequest={handleSubmitRequest}
                   isSubmitting={isSubmitting}
@@ -2191,7 +2190,6 @@ export default function App() {
                   onFinanceApprove={handleFinanceApprove}
                   onDeny={handleDenyTicket}
                   onSuspend={handleSuspendTicket}
-                  onResume={handleResumeTicket}
                   onSubmitRequest={handleSubmitRequest}
                   isSubmitting={isSubmitting}
                   officeOptions={[...Object.values(DEPT_OFFICE_LABELS), ...ADMIN_OFFICE_LABELS]}

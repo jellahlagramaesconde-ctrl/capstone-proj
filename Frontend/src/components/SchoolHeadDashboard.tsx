@@ -25,7 +25,6 @@ interface SchoolHeadDashboardProps {
   onSchoolHeadApprove: (id: string) => void;
   onDeny?: (id: string, reason: string) => Promise<void> | void;
   onSuspend?: (id: string, reason: string) => Promise<void> | void;
-  onResume?: (id: string, reason?: string) => Promise<void> | void;
   displayName?: string;
   onSubmitRequest?: (office: string, description: string, requestedByName: string, isEmergency: boolean, photoUrls?: string[], requiresFunds?: boolean) => Promise<void>;
   isSubmitting?: boolean;
@@ -42,7 +41,6 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
   onSchoolHeadApprove,
   onDeny,
   onSuspend,
-  onResume,
   displayName,
   onSubmitRequest,
   isSubmitting = false,
@@ -825,23 +823,6 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
                           <span>Assigned: <strong className="text-[#2B1210]">{ticket.assignedStaff || "Unassigned"}</strong></span>
                         </div>
                       </div>
-
-                      {/* Action buttons */}
-                      {onResume && (
-                        <div className="mt-3 pt-3 border-t border-amber-100 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onResume(ticket.id);
-                            }}
-                            className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-mono font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            Resume Request
-                          </button>
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -952,10 +933,6 @@ export const SchoolHeadDashboard: React.FC<SchoolHeadDashboardProps> = ({
           }}
           onSuspend={async (id, reason) => {
             await onSuspend?.(id, reason);
-            setSelectedTicket(null);
-          }}
-          onResume={async (id, reason) => {
-            await onResume?.(id, reason);
             setSelectedTicket(null);
           }}
         />

@@ -279,6 +279,11 @@ ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS previous_status VARCHAR(20);
 ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_changed_by_user_id INT REFERENCES users(id);
 ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMP;
 
+-- Legacy check constraint fix: earlier schema revisions restricted status to
+-- ('Pending', 'In Progress', 'Completed', 'Denied'). Rebuild to include 'Suspended'.
+ALTER TABLE job_orders DROP CONSTRAINT IF EXISTS job_orders_status_check;
+ALTER TABLE job_orders ADD CONSTRAINT job_orders_status_check CHECK (status IN ('Pending', 'In Progress', 'Completed', 'Denied', 'Suspended'));
+
 CREATE TABLE IF NOT EXISTS job_order_photos (
     id           SERIAL PRIMARY KEY,
     job_order_id TEXT NOT NULL REFERENCES job_orders(id) ON DELETE CASCADE,

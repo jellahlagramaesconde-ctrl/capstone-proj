@@ -2993,8 +2993,8 @@ app.post("/api/job-orders/suspend", authenticateToken, requireRole("PPO", "Presi
   }
 });
 
-// Resume Suspended Job Order — PPO, President, Finance, Admin
-app.post("/api/job-orders/resume", authenticateToken, requireRole("PPO", "President", "Finance", "Admin"), async (req: AuthedRequest, res) => {
+// Resume Suspended Job Order — PPO only
+app.post("/api/job-orders/resume", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
   try {
     const { id, reason } = req.body;
     const existing = await pool.query("SELECT * FROM job_orders WHERE id = $1", [id]);
@@ -3470,6 +3470,20 @@ async function applySchemaMigrations() {
     } catch (constraintErr: any) {
       console.warn("⚠️  Could not rebuild notifications_role_check (non-fatal, continuing boot):", constraintErr.message);
     }
+
+    // job_orders.status constraint: earlier schema revisions had a strict
+    // CHECK constraint (Postgres auto-names it job_orders_status_check) that
+    // only permitted ('Pending', 'In Progress', 'Completed', 'Denied'). Rebuild
+    // it so 'Suspended' (on hold) is accepted on existing production databases.
+    try {
+      await pool.query("ALTER TABLE job_orders DROP CONSTRAINT IF EXISTS job_orders_status_check");
+      await pool.query(
+        "ALTER TABLE job_orders ADD CONSTRAINT job_orders_status_check CHECK (status IN ('Pending', 'In Progress', 'Completed', 'Denied', 'Suspended'))"
+      );
+    } catch (constraintErr: any) {
+      console.warn("⚠️  Could not rebuild job_orders_status_check (non-fatal, continuing boot):", constraintErr.message);
+    }
+
   } catch (err: any) {
     console.error("Schema migration failed:", err);
     process.exit(1);

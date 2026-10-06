@@ -518,7 +518,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                   <div className="mt-1.5 text-xs font-sans text-amber-900 leading-relaxed bg-white/80 border border-amber-200/90 rounded-lg p-2.5">
                     <strong>Remarks / Explanation:</strong> {ticket.statusReason || "No explanation provided."}
                   </div>
-                  {onResume && (isAdmin || actorRole === "PPO" || actorRole === "President" || actorRole === "Finance") && (
+                  {onResume && actorRole === "PPO" && (
                     <div className="mt-2.5 flex justify-end">
                       <button
                         type="button"
@@ -1675,7 +1675,7 @@ export const TicketDetailsModal: React.FC<TicketDetailsModalProps> = ({
                         <span>Suspend Request</span>
                       </button>
                     )}
-                    {onResume && ticket.status === "Suspended" && (
+                    {onResume && actorRole === "PPO" && ticket.status === "Suspended" && (
                       <button
                         type="button"
                         onClick={async () => {
