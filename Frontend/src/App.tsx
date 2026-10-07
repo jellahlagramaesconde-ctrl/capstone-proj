@@ -892,13 +892,16 @@ export default function App() {
     }
   };
 
-  // Lets PPO admins correct a user's full name / email / department office
-  // after the account already exists — deliberately does NOT touch username,
-  // role, or password (those stay locked down), but department IS editable
-  // here since it only ever restricts which office a Dept account can log in
-  // as, never expands access, and it's the only way to assign an office to
-  // an account that didn't get one at creation time.
-  const handleEditUser = async (id: number, userData: { fullName: string; email?: string; department?: string }) => {
+  // Lets PPO admins edit all fields of any user account (full name, username,
+  // role, department office, email, and optional password reset).
+  const handleEditUser = async (id: number, userData: {
+    fullName: string;
+    username?: string;
+    role?: string;
+    email?: string;
+    department?: string;
+    password?: string;
+  }) => {
     try {
       const res = await authedFetch(`/api/users/${id}`, {
         method: "PATCH",
@@ -908,7 +911,7 @@ export default function App() {
       const data = await res.json();
       if (res.ok) {
         await fetchDatabase();
-        return { ok: true };
+        return { ok: true, user: data.user };
       }
       return { ok: false, error: data.error || "Failed to update user account." };
     } catch (err: any) {
@@ -2144,6 +2147,7 @@ export default function App() {
                   logs={logs}
                   userAccounts={userAccounts}
                   onCreateUser={handleCreateUser}
+                  onEditUser={handleEditUser}
                   onDeleteUser={handleDeleteUser}
                   onDeleteJobOrder={handleDeleteJobOrder}
                   onOverride={handleOverride}

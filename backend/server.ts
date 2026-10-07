@@ -580,55 +580,134 @@ app.post("/api/users", authenticateToken, requireRole("PPO"), async (req: Authed
   }
 });
 
-app.patch("/api/users/:id", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
+app.patch("/api/users/:id", authenticateToken, requireRole("PPO", "Admin"), async (req: AuthedRequest, res) => {
   try {
     const userId = Number(req.params.id);
     if (!userId || isNaN(userId)) {
       return res.status(400).json({ error: "Invalid user ID." });
     }
 
-    const { fullName, email, department } = req.body;
+    const { fullName, username, role, email, department, password } = req.body;
     if (!fullName || !String(fullName).trim()) {
       return res.status(400).json({ error: "Full name is required." });
     }
 
-    let cleanEmail: string | null = null;
-    if (email && String(email).trim()) {
-      cleanEmail = String(email).trim().toLowerCase();
-      if (!EMAIL_REGEX.test(cleanEmail)) {
-        return res.status(400).json({ error: "Invalid email format." });
-      }
-    }
+    const cleanFullName = String(fullName).trim();
 
-    const check = await pool.query("SELECT username, role, department FROM users WHERE id = $1", [userId]);
+    const check = await pool.query(
+      "SELECT id, username, role, department, full_name as \"fullName\", email FROM users WHERE id = $1",
+      [userId]
+    );
     if (check.rows.length === 0) {
       return res.status(404).json({ error: "User account not found." });
     }
     const targetUser = check.rows[0];
 
-    // Only touch department for Dept-role accounts, and only if a value was
-    // actually provided — otherwise leave whatever is already stored alone.
-    let cleanDepartment: string | null = targetUser.department;
-    if (targetUser.role === "Dept" && department !== undefined) {
-      if (!department || !isValidDepartmentValue(department)) {
-        return res.status(400).json({ error: "Please select a valid department office for this account." });
+    // Validate username if provided
+    let cleanUsername = targetUser.username;
+    if (username !== undefined && String(username).trim()) {
+      const uCandidate = String(username).trim().toLowerCase();
+      if (!USERNAME_REGEX.test(uCandidate)) {
+        return res.status(400).json({ error: "Username may only contain letters, numbers, dots, underscores, or hyphens." });
       }
-      cleanDepartment = department;
+      if (uCandidate !== targetUser.username.toLowerCase()) {
+        const uCheck = await pool.query("SELECT id FROM users WHERE LOWER(username) = $1 AND id <> $2", [uCandidate, userId]);
+        if (uCheck.rows.length > 0) {
+          return res.status(400).json({ error: `Username "${uCandidate}" is already in use by another account.` });
+        }
+      }
+      cleanUsername = uCandidate;
     }
 
-    const result = await pool.query(
-      `UPDATE users
-       SET full_name = $1, email = $2, department = $3
-       WHERE id = $4
-       RETURNING id, username, role, full_name as "fullName", email, department, created_at as "createdAt"`,
-      [String(fullName).trim(), cleanEmail, cleanDepartment, userId]
-    );
+    // Validate role if provided
+    let cleanRole = targetUser.role;
+    if (role !== undefined && String(role).trim()) {
+      if (!VALID_ROLES.includes(role)) {
+        return res.status(400).json({ error: `Invalid role "${role}". Allowed roles: ${VALID_ROLES.join(", ")}.` });
+      }
+      cleanRole = role;
+    }
+
+    // Validate email
+    let cleanEmail: string | null = null;
+    if (email !== undefined) {
+      if (email && String(email).trim()) {
+        const eCandidate = String(email).trim().toLowerCase();
+        if (!EMAIL_REGEX.test(eCandidate)) {
+          return res.status(400).json({ error: "Invalid email format." });
+        }
+        cleanEmail = eCandidate;
+      } else {
+        cleanEmail = null;
+      }
+    } else {
+      cleanEmail = targetUser.email;
+    }
+
+    // Validate department
+    let cleanDepartment: string | null = targetUser.department;
+    if (cleanRole === "Dept") {
+      if (department !== undefined && department !== null && String(department).trim()) {
+        if (!isValidDepartmentValue(department)) {
+          return res.status(400).json({ error: "Please select a valid department office for this Department Head account." });
+        }
+        cleanDepartment = department;
+      } else if (!cleanDepartment) {
+        return res.status(400).json({ error: "Please select a department office for this Department Head account." });
+      }
+    } else {
+      if (department !== undefined) {
+        cleanDepartment = department && isValidDepartmentValue(department) ? department : null;
+      }
+    }
+
+    // Validate optional new password
+    let passwordHashToSet: string | null = null;
+    if (password !== undefined && password !== null && String(password).trim() !== "") {
+      const pCandidate = String(password);
+      if (pCandidate.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters long." });
+      }
+      passwordHashToSet = await bcrypt.hash(pCandidate, 12);
+    }
+
+    let result;
+    if (passwordHashToSet) {
+      result = await pool.query(
+        `UPDATE users
+         SET full_name = $1, username = $2, role = $3, email = $4, department = $5, password_hash = $6
+         WHERE id = $7
+         RETURNING id, username, role, full_name as "fullName", email, department, created_at as "createdAt"`,
+        [cleanFullName, cleanUsername, cleanRole, cleanEmail, cleanDepartment, passwordHashToSet, userId]
+      );
+    } else {
+      result = await pool.query(
+        `UPDATE users
+         SET full_name = $1, username = $2, role = $3, email = $4, department = $5
+         WHERE id = $6
+         RETURNING id, username, role, full_name as "fullName", email, department, created_at as "createdAt"`,
+        [cleanFullName, cleanUsername, cleanRole, cleanEmail, cleanDepartment, userId]
+      );
+    }
+
+    const updatedUser = result.rows[0];
+
+    // Maintain staff table sync
+    if (cleanRole === "Staff") {
+      await pool.query(
+        `INSERT INTO staff (name, specialty, tags, workload, user_id)
+         VALUES ($1, 'Maintenance Specialist', ARRAY['General'], 0, $2)
+         ON CONFLICT (name) DO UPDATE SET user_id = EXCLUDED.user_id`,
+        [cleanFullName, userId]
+      );
+      await pool.query("UPDATE staff SET name = $1 WHERE user_id = $2", [cleanFullName, userId]);
+    }
 
     await pool.query("INSERT INTO logs (message) VALUES ($1)", [
-      `User account "${targetUser.username}" (${targetUser.role}) name/email updated by PPO Admin (${req.user?.username}).`
+      `User account "${targetUser.username}" (ID: ${userId}) updated by PPO Admin (${req.user?.username}): username="${cleanUsername}", role="${cleanRole}", name="${cleanFullName}"${passwordHashToSet ? ", password updated" : ""}.`
     ]);
 
-    res.json({ ok: true, user: result.rows[0] });
+    res.json({ ok: true, user: updatedUser });
   } catch (err: any) {
     console.error("Error updating user account:", err);
     res.status(500).json({ error: err.message || "Failed to update user account." });

@@ -23,9 +23,6 @@ import {
   Bell,
   Palette,
   Building,
-  Download,
-  Activity,
-  HardDrive,
   Check,
   Plus,
   Volume2,
@@ -56,7 +53,14 @@ interface SettingsModalProps {
   }) => Promise<{ ok: boolean; error?: string }>;
   onEditUser: (
     id: number,
-    userData: { fullName: string; email?: string; department?: string }
+    userData: {
+      fullName: string;
+      username?: string;
+      role?: string;
+      email?: string;
+      department?: string;
+      password?: string;
+    }
   ) => Promise<{ ok: boolean; error?: string }>;
   onDeleteUser: (id: number) => Promise<{ ok: boolean; error?: string }>;
   currentUserRole?: string;
@@ -159,7 +163,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   slaDefaults = { regularDays: 5, moderateDays: 2, emergencyHours: 4 },
   onUpdateSlaDefaults,
 }) => {
-  type TabType = "accounts" | "notifications" | "appearance" | "profile" | "backup" | "workload" | "sla" | "security" | "system";
+  type TabType = "accounts" | "notifications" | "appearance" | "profile" | "workload" | "sla" | "security" | "system";
 
   // Role-based tab visibility:
   //  - PPO (and legacy "Admin"/no-role fallback): the full suite, unchanged.
@@ -425,11 +429,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [toastNotice, setToastNotice] = useState<string | null>(null);
 
-  // Edit Account State — lets PPO correct a user's full name / email in place
-  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  // Edit Account State — lets PPO edit all fields of any user account
+  const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
   const [editFullName, setEditFullName] = useState("");
-  const [editEmail, setEditEmail] = useState("");
+  const [editUsername, setEditUsername] = useState("");
+  const [editRole, setEditRole] = useState("Dept");
   const [editDepartment, setEditDepartment] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [showEditPassword, setShowEditPassword] = useState(false);
   const [isEditSubmitting, setIsEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -555,80 +563,86 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleStartEditUser = (user: UserAccount) => {
     setIsCreating(false); // don't have both panels open at once
-    setEditingUserId(user.id);
-    setEditFullName(user.fullName);
-    setEditEmail(user.email || "");
+    setEditingUser(user);
+    setEditFullName(user.fullName || "");
+    setEditUsername(user.username || "");
+    setEditRole(user.role || "Dept");
     setEditDepartment(user.department || DEPARTMENT_OFFICES[0].value);
+    setEditEmail(user.email || "");
+    setEditPassword("");
+    setShowEditPassword(false);
     setEditError(null);
   };
 
   const handleCancelEditUser = () => {
-    setEditingUserId(null);
+    setEditingUser(null);
     setEditFullName("");
-    setEditEmail("");
+    setEditUsername("");
+    setEditRole("Dept");
     setEditDepartment("");
+    setEditEmail("");
+    setEditPassword("");
+    setShowEditPassword(false);
     setEditError(null);
   };
 
-  const handleSubmitEditUser = async (user: UserAccount) => {
+  const handleGenerateEditPassword = () => {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%";
+    let pass = "";
+    for (let i = 0; i < 12; i++) {
+      pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setEditPassword(pass);
+    setShowEditPassword(true);
+  };
+
+  const handleSubmitEditUser = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!editingUser) return;
     setEditError(null);
+
     if (!editFullName.trim()) {
-      setEditError("Full name can't be empty.");
+      setEditError("Full name / office title cannot be empty.");
       return;
     }
-    if (user.role === "Dept" && !editDepartment) {
-      setEditError("Please select the department office this account belongs to.");
+    if (!editUsername.trim()) {
+      setEditError("System username cannot be empty.");
       return;
     }
+    const cleanUsername = editUsername.trim().toLowerCase();
+    if (!/^[a-zA-Z0-9._-]+$/.test(cleanUsername)) {
+      setEditError("Username may only contain letters, numbers, dots, underscores, or hyphens.");
+      return;
+    }
+    if (editRole === "Dept" && !editDepartment) {
+      setEditError("Please select the department office this Department Head account belongs to.");
+      return;
+    }
+    if (editPassword && editPassword.length < 8) {
+      setEditError("New password must be at least 8 characters long.");
+      return;
+    }
+
     setIsEditSubmitting(true);
-    const res = await onEditUser(user.id, {
+    const res = await onEditUser(editingUser.id, {
       fullName: editFullName.trim(),
+      username: cleanUsername,
+      role: editRole,
+      department: editRole === "Dept" ? editDepartment : (editDepartment || undefined),
       email: editEmail.trim() || undefined,
-      department: user.role === "Dept" ? editDepartment : undefined,
+      password: editPassword.trim() || undefined,
     });
     setIsEditSubmitting(false);
+
     if (res.ok) {
-      showToast(`Account "${user.username}" updated.`);
-      setEditingUserId(null);
+      showToast(`User account "${cleanUsername}" updated successfully!`);
+      handleCancelEditUser();
     } else {
-      setEditError(res.error || "Failed to update account.");
+      setEditError(res.error || "Failed to update user account.");
     }
   };
 
-  const handleDownloadBackup = (format: "json" | "csv") => {
-    let content = "";
-    let mimeType = "application/json";
-    let filename = `JORS_COSCA_Backup_${new Date().toISOString().split("T")[0]}`;
 
-    if (format === "json") {
-      content = JSON.stringify({ backupDate: new Date().toISOString(), users, tickets }, null, 2);
-      filename += ".json";
-    } else {
-      mimeType = "text/csv";
-      filename += ".csv";
-      const headers = ["ID", "Job Type", "Department Office", "Status", "Urgency", "Estimated Cost", "Approved Amount", "Date Submitted"];
-      const rows = tickets.map((t) => [
-        t.id,
-        `"${t.jobType}"`,
-        `"${t.office || ""}"`,
-        `"${t.status}"`,
-        t.urgency,
-        t.estimatedCost || 0,
-        t.approvedAmount || 0,
-        `"${t.dateSubmitted}"`,
-      ]);
-      content = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    }
-
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast(`Downloaded backup (${filename})`);
-  };
 
   const handleSaveWorkloadLimit = () => {
     if (onChangeMaxWorkerTaskLimit) onChangeMaxWorkerTaskLimit(workerTaskLimit);
@@ -659,7 +673,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 System Settings Suite
               </h3>
               <p className="text-xs text-slate-700 font-sans">
-                Manage user accounts, notifications, themes, offices, backup logs, and security options.
+                Manage user accounts, notifications, themes, offices, and security options.
               </p>
             </div>
           </div>
@@ -727,19 +741,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <User className="w-3.5 h-3.5" />
             <span>Account Profile</span>
           </button>
-
-          {canManageAccounts && (
-            <button
-              onClick={() => setActiveTab("backup")}
-              className={`shrink-0 py-1.5 px-3 rounded-lg font-display font-medium text-xs flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${activeTab === "backup"
-                ? "bg-[#6B1420] text-white font-bold shadow-sm"
-                : "bg-white text-slate-700 border border-[#E6DDD3] hover:text-[#241012] hover:border-[#DDD2C8]"
-                }`}
-            >
-              <HardDrive className="w-3.5 h-3.5" />
-              <span>Data Backup &amp; Logs</span>
-            </button>
-          )}
 
           {canManageAccounts && (
             <button
@@ -1044,128 +1045,72 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {filteredUsers.length > 0 ? (
                         filteredUsers.map((u) => {
                           const cfg = ROLE_CONFIG[u.role] || { label: u.role, bg: "bg-gray-100", text: "text-gray-700", border: "border-gray-300" };
-                          const isEditingRow = editingUserId === u.id;
+                          const isBeingEdited = editingUser?.id === u.id;
                           return (
-                            <React.Fragment key={u.id}>
-                              <tr className={`hover:bg-[#FBF9F6] transition-colors ${isEditingRow ? "bg-[#FBF9F6]" : ""}`}>
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-2.5">
-                                    <div className="w-8 h-8 rounded-full bg-[#6B1420]/10 text-[#6B1420] font-mono font-bold flex items-center justify-center text-xs shrink-0">
-                                      {(isEditingRow ? editFullName : u.fullName).charAt(0).toUpperCase() || "?"}
-                                    </div>
-                                    {isEditingRow ? (
-                                      <input
-                                        type="text"
-                                        value={editFullName}
-                                        onChange={(e) => setEditFullName(e.target.value)}
-                                        placeholder="Full name"
-                                        className="w-full text-xs font-sans px-2 py-1.5 rounded-lg border border-[#6B1420]/40 bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
-                                      />
-                                    ) : (
-                                      <div>
-                                        <span className="font-bold text-[#241012] block leading-tight">{u.fullName}</span>
-                                        <span className="text-[11px] font-mono text-slate-700">@{u.username}</span>
-                                      </div>
-                                    )}
+                            <tr
+                              key={u.id}
+                              className={`hover:bg-[#FBF9F6] transition-colors ${isBeingEdited ? "bg-[#6B1420]/5 ring-1 ring-[#6B1420]/30" : ""}`}
+                            >
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-8 h-8 rounded-full bg-[#6B1420]/10 text-[#6B1420] font-mono font-bold flex items-center justify-center text-xs shrink-0">
+                                    {u.fullName.charAt(0).toUpperCase() || "?"}
                                   </div>
-                                </td>
+                                  <div>
+                                    <span className="font-bold text-[#241012] block leading-tight">{u.fullName}</span>
+                                    <span className="text-[11px] font-mono text-slate-700">@{u.username}</span>
+                                  </div>
+                                </div>
+                              </td>
 
-                                <td className="py-3 px-4">
-                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
-                                    {cfg.label}
+                              <td className="py-3 px-4">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+                                  {cfg.label}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-4 text-slate-700">
+                                {u.department ? (
+                                  <span className="text-[#4A322E] font-medium">{DEPT_OFFICE_LABELS[u.department] || u.department}</span>
+                                ) : (
+                                  <span className="italic text-slate-500">
+                                    {u.role === "Dept" ? "Not assigned — click edit to fix" : "—"}
                                   </span>
-                                </td>
+                                )}
+                              </td>
 
-                                <td className="py-3 px-4 text-slate-700">
-                                  {isEditingRow && u.role === "Dept" ? (
-                                    <select
-                                      value={editDepartment}
-                                      onChange={(e) => setEditDepartment(e.target.value)}
-                                      className="w-full text-xs font-sans px-2 py-1.5 rounded-lg border border-[#6B1420]/40 bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420] cursor-pointer"
-                                    >
-                                      {DEPARTMENT_OFFICES.map((d) => (
-                                        <option key={d.value} value={d.value}>{d.fullName}</option>
-                                      ))}
-                                    </select>
-                                  ) : u.department ? (
-                                    <span className="text-[#4A322E]">{DEPT_OFFICE_LABELS[u.department] || u.department}</span>
-                                  ) : (
-                                    <span className="italic text-slate-500">
-                                      {u.role === "Dept" ? "Not assigned — click edit to fix" : "—"}
-                                    </span>
-                                  )}
-                                </td>
+                              <td className="py-3 px-4 text-slate-700 font-mono">
+                                {u.email || <span className="italic font-sans text-slate-500">No email</span>}
+                              </td>
 
-                                <td className="py-3 px-4 text-slate-700">
-                                  {isEditingRow ? (
-                                    <input
-                                      type="email"
-                                      value={editEmail}
-                                      onChange={(e) => setEditEmail(e.target.value)}
-                                      placeholder="e.g. maria@cosca.edu.ph"
-                                      className="w-full text-xs font-sans px-2 py-1.5 rounded-lg border border-[#6B1420]/40 bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
-                                    />
-                                  ) : (
-                                    u.email || <span className="italic text-slate-500">No email</span>
-                                  )}
-                                </td>
+                              <td className="py-3 px-4 text-slate-700 font-mono">
+                                {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
+                              </td>
 
-                                <td className="py-3 px-4 text-slate-700 font-mono">
-                                  {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
-                                </td>
-
-                                <td className="py-3 px-4 text-right">
-                                  {isEditingRow ? (
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <button
-                                        onClick={() => handleSubmitEditUser(u)}
-                                        disabled={isEditSubmitting}
-                                        className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
-                                        title="Save changes"
-                                      >
-                                        <Save className="w-4 h-4" />
-                                      </button>
-                                      <button
-                                        onClick={handleCancelEditUser}
-                                        disabled={isEditSubmitting}
-                                        className="p-1.5 text-slate-700 hover:bg-[#F0EAE4] rounded-lg transition-colors cursor-pointer disabled:opacity-40"
-                                        title="Cancel"
-                                      >
-                                        <X className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <button
-                                        onClick={() => handleStartEditUser(u)}
-                                        className="p-1.5 text-[#6B1420] hover:bg-[#6B1420]/10 rounded-lg transition-colors cursor-pointer"
-                                        title="Edit name / email"
-                                      >
-                                        <Pencil className="w-4 h-4" />
-                                      </button>
-                                      <button
-                                        onClick={() => handleDeleteUserAccount(u)}
-                                        disabled={deletingId === u.id}
-                                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                        title="Delete account"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                              {isEditingRow && editError && (
-                                <tr className="bg-rose-50/60">
-                                  <td colSpan={6} className="px-4 pb-3 pt-0">
-                                    <div className="flex items-center gap-2 text-[11px] text-rose-700 font-sans">
-                                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                      <span>{editError}</span>
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
+                              <td className="py-3 px-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleStartEditUser(u)}
+                                    className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                      isBeingEdited ? "bg-[#6B1420] text-white shadow-xs" : "text-[#6B1420] hover:bg-[#6B1420]/10"
+                                    }`}
+                                    title="Edit user account (name, username, role, department, password)"
+                                    aria-label={`Edit account for ${u.fullName}`}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteUserAccount(u)}
+                                    disabled={deletingId === u.id}
+                                    className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                                    title="Delete account"
+                                    aria-label={`Delete account for ${u.fullName}`}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
                           );
                         })
                       ) : (
@@ -1179,6 +1124,217 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </table>
                 </div>
               </div>
+
+              {/* Dedicated Edit User Account Modal Dialog */}
+              {editingUser && (
+                <div className="fixed inset-0 bg-[#241012]/60 backdrop-blur-xs z-[70] flex items-center justify-center p-4">
+                  <div className="bg-white border border-[#DDD2C8] rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
+                    {/* Header */}
+                    <div className="px-6 py-4 border-b border-[#E6DDD3] bg-[#F7F4F0] flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-[#6B1420] text-white rounded-xl flex items-center justify-center shadow-md">
+                          <Pencil className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-display font-bold text-base text-[#241012]">
+                              Edit User Account
+                            </h4>
+                            <span className="text-xs font-mono bg-[#6B1420]/10 text-[#6B1420] px-2 py-0.5 rounded-full font-bold">
+                              @{editingUser.username}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-700 font-sans">
+                            Update credentials, access role, office designation, or reset password for this user.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleCancelEditUser}
+                        className="w-8 h-8 rounded-lg bg-white border border-[#E6DDD3] hover:bg-[#F5F1EC] text-slate-700 hover:text-[#241012] flex items-center justify-center transition-colors cursor-pointer"
+                        title="Close edit modal"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Form Body */}
+                    <form onSubmit={handleSubmitEditUser} className="p-6 overflow-y-auto space-y-4">
+                      {editError && (
+                        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs font-sans flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>{editError}</span>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* Full Name */}
+                        <div>
+                          <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
+                            Full Name / Office Title *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={editFullName}
+                            onChange={(e) => setEditFullName(e.target.value)}
+                            placeholder="e.g. Maria Clara Santos"
+                            className="w-full text-xs font-sans px-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                          />
+                        </div>
+
+                        {/* System Username */}
+                        <div>
+                          <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
+                            System Username *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={editUsername}
+                            onChange={(e) => setEditUsername(e.target.value)}
+                            placeholder="e.g. maria_santos"
+                            className="w-full text-xs font-mono px-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                          />
+                        </div>
+
+                        {/* Security Role */}
+                        <div>
+                          <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
+                            Security Role / Access Level *
+                          </label>
+                          <select
+                            value={editRole}
+                            onChange={(e) => setEditRole(e.target.value)}
+                            className="w-full text-xs font-sans px-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420] cursor-pointer"
+                          >
+                            <option value="Dept">Department Head (Request Portal)</option>
+                            <option value="Staff">Maintenance Staff / Technician (Task Board)</option>
+                            <option value="PPO">PPO Physical Plant Officer (Admin)</option>
+                            <option value="President">School Head / President (Administrative Endorsement)</option>
+                            <option value="Finance">Finance Department Head (Budget Approval &amp; Release)</option>
+                          </select>
+                        </div>
+
+                        {/* Email Address */}
+                        <div>
+                          <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
+                            Registered Gmail / Email (Optional)
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="email"
+                              value={editEmail}
+                              onChange={(e) => setEditEmail(e.target.value)}
+                              placeholder="e.g. user@cosca.edu.ph"
+                              className="w-full text-xs font-sans pl-8 pr-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                            />
+                            <Mail className="w-3.5 h-3.5 text-slate-600 absolute left-2.5 top-2.5" />
+                          </div>
+                        </div>
+
+                        {/* Department Office */}
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
+                            Department Office {editRole === "Dept" ? "*" : "(Optional)"}
+                          </label>
+                          <select
+                            value={editDepartment}
+                            onChange={(e) => setEditDepartment(e.target.value)}
+                            required={editRole === "Dept"}
+                            className="w-full text-xs font-sans px-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420] cursor-pointer"
+                          >
+                            {editRole !== "Dept" && <option value="">— None / Not Assigned —</option>}
+                            {DEPARTMENT_OFFICES.map((dept) => (
+                              <option key={dept.value} value={dept.value}>
+                                {dept.fullName}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="text-[11px] text-slate-600 font-sans mt-1 block">
+                            {editRole === "Dept"
+                              ? "Department Head accounts can only log in under this designated office on the portal."
+                              : "Optionally associate this user account with a home campus department or office."}
+                          </span>
+                        </div>
+
+                        {/* Reset Password */}
+                        <div className="sm:col-span-2 pt-3 border-t border-[#E6DDD3]">
+                          <div className="flex items-center justify-between mb-1">
+                            <div>
+                              <label className="block text-xs font-mono font-bold text-slate-700 uppercase">
+                                Reset Password (Optional)
+                              </label>
+                              <span className="text-[11px] text-slate-600 font-sans">
+                                Leave blank to keep existing password unchanged.
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleGenerateEditPassword}
+                              className="text-[11px] font-mono text-[#6B1420] hover:underline flex items-center gap-1 cursor-pointer"
+                            >
+                              <Sparkles className="w-3 h-3" /> Auto-Generate Secure Password
+                            </button>
+                          </div>
+
+                          <div className="relative mt-1">
+                            <input
+                              type={showEditPassword ? "text" : "password"}
+                              placeholder="Enter at least 8 characters to reset password..."
+                              value={editPassword}
+                              onChange={(e) => setEditPassword(e.target.value)}
+                              className="w-full text-xs font-mono pl-8 pr-10 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                            />
+                            <Lock className="w-3.5 h-3.5 text-slate-600 absolute left-2.5 top-2.5" />
+                            <button
+                              type="button"
+                              onClick={() => setShowEditPassword(!showEditPassword)}
+                              className="absolute right-3 top-2 text-slate-700 hover:text-[#241012] cursor-pointer"
+                            >
+                              {showEditPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+
+                          {editPassword && (
+                            <div className="mt-2 space-y-1">
+                              <div className="flex items-center justify-between text-[11px] font-mono">
+                                <span className="text-slate-700">Strength:</span>
+                                <span className="font-bold">{getPasswordStrength(editPassword).label}</span>
+                              </div>
+                              <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden flex gap-1">
+                                <div className={`h-full flex-1 ${getPasswordStrength(editPassword).score >= 1 ? getPasswordStrength(editPassword).color : "bg-gray-200"}`} />
+                                <div className={`h-full flex-1 ${getPasswordStrength(editPassword).score >= 2 ? getPasswordStrength(editPassword).color : "bg-gray-200"}`} />
+                                <div className={`h-full flex-1 ${getPasswordStrength(editPassword).score >= 3 ? getPasswordStrength(editPassword).color : "bg-gray-200"}`} />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Modal Actions */}
+                      <div className="flex justify-end gap-2 pt-4 border-t border-[#E6DDD3]">
+                        <button
+                          type="button"
+                          onClick={handleCancelEditUser}
+                          disabled={isEditSubmitting}
+                          className="px-4 py-2 text-xs font-mono font-bold text-[#4A322E] bg-[#E6DDD3] hover:bg-[#DDD2C8] rounded-lg cursor-pointer transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isEditSubmitting}
+                          className="px-5 py-2 text-xs font-mono font-bold text-white bg-[#6B1420] hover:bg-[#541019] rounded-lg disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-sm transition-all"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          {isEditSubmitting ? "Saving Changes..." : "Save Account Changes"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1608,63 +1764,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* TAB 5: Data Backup & Activity Logs */}
-          {activeTab === "backup" && canManageAccounts && (
-            <div className="space-y-6">
-              {/* One-Click Backup Banner */}
-              <div className="bg-[#F7F4F0] border border-[#E6DDD3] rounded-xl p-5 space-y-4">
-                <h4 className="font-display font-bold text-sm text-[#241012] flex items-center gap-2">
-                  <Download className="w-4 h-4 text-[#6B1420]" />
-                  System Database Backup &amp; Record Export
-                </h4>
-                <p className="text-xs text-slate-700 font-sans">
-                  Export complete system job order records, accounts, and financial approval data for offline archival.
-                </p>
-
-                <div className="flex flex-wrap gap-3 pt-1">
-                  <button
-                    onClick={() => handleDownloadBackup("json")}
-                    className="px-4 py-2.5 bg-[#6B1420] text-white font-mono font-bold text-xs rounded-lg hover:bg-[#541019] cursor-pointer shadow-xs flex items-center gap-2"
-                  >
-                    <Download className="w-4 h-4" /> Export Backup (JSON Format)
-                  </button>
-
-                  <button
-                    onClick={() => handleDownloadBackup("csv")}
-                    className="px-4 py-2.5 bg-emerald-700 text-white font-mono font-bold text-xs rounded-lg hover:bg-emerald-800 cursor-pointer shadow-xs flex items-center gap-2"
-                  >
-                    <Download className="w-4 h-4" /> Export Records (CSV Excel)
-                  </button>
-                </div>
-              </div>
-
-              {/* System Audit Trail Viewer */}
-              <div className="bg-[#F7F4F0] border border-[#E6DDD3] rounded-xl p-5 space-y-3">
-                <h4 className="font-display font-bold text-sm text-[#241012] flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-[#6B1420]" />
-                  System Activity Audit Log
-                </h4>
-                <div className="bg-white border border-[#E6DDD3] rounded-lg p-3 max-h-48 overflow-y-auto space-y-2 font-mono text-[11px] text-[#2B1210]">
-                  <div className="flex justify-between text-slate-700">
-                    <span>[LOG 2026-07-25 20:45] System settings opened by {currentUserRole || "Admin"}</span>
-                    <span className="text-emerald-600 font-bold">INFO</span>
-                  </div>
-                  <div className="flex justify-between text-slate-700">
-                    <span>[LOG 2026-07-25 19:30] Security rules enforced (bcrypt cost factor 12)</span>
-                    <span className="text-emerald-600 font-bold">SECURITY</span>
-                  </div>
-                  <div className="flex justify-between text-slate-700">
-                    <span>[LOG 2026-07-25 18:12] PostgreSQL database synced with 0 errors</span>
-                    <span className="text-emerald-600 font-bold">DB_SYNC</span>
-                  </div>
-                  <div className="flex justify-between text-slate-700">
-                    <span>[LOG 2026-07-25 16:05] Maintenance staff roster synchronized</span>
-                    <span className="text-emerald-600 font-bold">STAFF</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* TAB 6: Worker Workload Rules */}
           {activeTab === "workload" && canManageAccounts && (

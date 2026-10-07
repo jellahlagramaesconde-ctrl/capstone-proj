@@ -14,7 +14,8 @@ interface AdminDashboardProps {
   staffRoster: Staff[];
   logs: LogEntry[];
   userAccounts?: UserAccount[];
-  onCreateUser?: (userData: { username: string; password: string; role: string; fullName: string; email?: string }) => Promise<{ ok: boolean; error?: string }>;
+  onCreateUser?: (userData: { username: string; password: string; role: string; fullName: string; email?: string; department?: string }) => Promise<{ ok: boolean; error?: string }>;
+  onEditUser?: (id: number, userData: { fullName: string; username?: string; role?: string; email?: string; department?: string; password?: string }) => Promise<{ ok: boolean; error?: string }>;
   onDeleteUser?: (id: number) => Promise<{ ok: boolean; error?: string }>;
   onDeleteJobOrder?: (ticketId: string) => Promise<{ ok: boolean; error?: string }>;
   onOverride: (id: string, assignedStaff: string, priorityScore: number, rationale: string, teamStaffIds?: number[]) => Promise<{ ok: boolean; error?: string }> | void;
@@ -51,6 +52,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   logs,
   userAccounts = [],
   onCreateUser,
+  onEditUser,
   onDeleteUser,
   onDeleteJobOrder,
   onOverride,
@@ -902,41 +904,104 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
 
           {/* Staff Roster Panel */}
-          <div className="bg-white border border-[#E6DDD3] rounded-lg p-4 sm:p-6 shadow-sm">
-            <h3 className="font-display font-semibold text-base text-[#241012] flex items-center gap-2 mb-4 pb-3 border-b border-[#E6DDD3]">
-              <Users className="w-4 h-4 text-cyan-accent" /> Staff Workload Roster
-            </h3>
-            <div className="space-y-4">
-              {staffRoster.map((staff) => {
-                // Determine workload indicator color
-                let barColor = "bg-cyan-accent";
-                if (staff.workload > 75) barColor = "bg-soft-red";
-                else if (staff.workload > 50) barColor = "bg-safety-amber";
+          <div className="bg-white border border-[#E6DDD3] rounded-lg p-4 sm:p-5 shadow-sm">
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-3 pb-3 border-b border-[#E6DDD3]">
+              <div className="w-7 h-7 rounded bg-[#6B1420]/10 flex items-center justify-center shrink-0">
+                <Users className="w-4 h-4 text-[#6B1420]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-display font-bold text-sm text-[#241012] truncate">
+                  Staff Workload Roster
+                </h3>
+                <p className="text-[10px] text-slate-500 font-sans">
+                  {staffRoster.length} technician{staffRoster.length !== 1 ? "s" : ""} on duty
+                  {maxWorkerTaskLimit ? ` · max ${maxWorkerTaskLimit} active` : ""}
+                </p>
+              </div>
+              <span className="text-xs font-mono font-bold text-[#6B1420] bg-[#6B1420]/10 border border-[#6B1420]/20 rounded px-2 py-0.5 shrink-0">
+                {staffRoster.length}
+              </span>
+            </div>
 
-                return (
-                  <div key={staff.name} className="flex flex-col text-xs font-sans">
-                    <div className="flex justify-between items-center text-[#2B1210] mb-1.5">
-                      <div>
-                        <span className="font-semibold block text-sm">{staff.name}</span>
-                        <span className="text-sm text-slate-700 font-mono tracking-wide uppercase">{staff.specialty}</span>
-                      </div>
-                      <span className="font-mono text-slate-600 bg-[#F0EAE4] px-1.5 py-0.5 rounded border border-[#E6DDD3]">{staff.workload}% load</span>
-                    </div>
-                    {/* Workload Progress Bar */}
-                    <div className="w-full h-2 rounded bg-[#F0EAE4] overflow-hidden border border-[#E6DDD3]">
-                      <div className={`h-full ${barColor} transition-all`} style={{ width: `${staff.workload}%` }} />
-                    </div>
-                    {/* Tags */}
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {staff.tags.map((tag) => (
-                        <span key={tag} className="text-xs font-mono bg-[#F0EAE4] text-[#6B1420] border border-[#E6DDD3] px-1.5 py-0.5 rounded">
-                          {tag}
+            {/* Scrollable list matching recurring problems panel */}
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {staffRoster.length > 0 ? (
+                staffRoster.map((staff) => {
+                  let barColor = "bg-emerald-500";
+                  let badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-200";
+                  if (staff.workload > 75) {
+                    barColor = "bg-rose-500";
+                    badgeStyle = "bg-rose-50 text-rose-700 border-rose-200";
+                  } else if (staff.workload > 50) {
+                    barColor = "bg-amber-500";
+                    badgeStyle = "bg-amber-800 text-amber-900 border-amber-300";
+                  } else if (staff.workload > 0) {
+                    barColor = "bg-blue-500";
+                    badgeStyle = "bg-blue-50 text-blue-700 border-blue-200";
+                  } else {
+                    barColor = "bg-slate-300";
+                    badgeStyle = "bg-slate-50 text-slate-600 border-slate-200";
+                  }
+
+                  return (
+                    <div
+                      key={staff.name}
+                      className="p-2.5 bg-[#FAF7F5] hover:bg-[#F5F0EB] border border-[#E6DDD3] rounded-lg transition-colors text-xs font-sans"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-6 h-6 rounded-full bg-[#6B1420]/10 text-[#6B1420] font-mono font-bold text-[11px] flex items-center justify-center shrink-0">
+                            {staff.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <span className="font-semibold text-xs text-[#241012] block truncate leading-tight">
+                              {staff.name}
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-sans block truncate">
+                              {staff.specialty || "Maintenance Specialist"}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${badgeStyle}`}>
+                          {staff.workload}% load
                         </span>
-                      ))}
+                      </div>
+
+                      {/* Slim Workload Progress Bar */}
+                      <div className="w-full h-1.5 rounded-full bg-[#E6DDD3]/70 overflow-hidden">
+                        <div
+                          className={`h-full ${barColor} transition-all duration-300 rounded-full`}
+                          style={{ width: `${Math.min(staff.workload, 100)}%` }}
+                        />
+                      </div>
+
+                      {/* Compact Tags */}
+                      {staff.tags && staff.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {staff.tags.slice(0, 3).map((tag) => (
+                            <span
+                              key={tag}
+                              className="text-[9px] font-mono bg-white text-[#6B1420] border border-[#E6DDD3] px-1.5 py-0.5 rounded"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          {staff.tags.length > 3 && (
+                            <span className="text-[9px] font-mono text-slate-400 self-center">
+                              +{staff.tags.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              ) : (
+                <div className="text-center py-6 text-slate-400 text-xs font-sans">
+                  No staff members on roster.
+                </div>
+              )}
             </div>
           </div>
 
@@ -1246,6 +1311,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClose={() => setIsAccountModalOpen(false)}
           users={userAccounts}
           onCreateUser={onCreateUser}
+          onEditUser={onEditUser}
           onDeleteUser={onDeleteUser}
         />
       )}
