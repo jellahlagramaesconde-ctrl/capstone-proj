@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { User, Shield, UserPlus, Search, Key, Trash2, CheckCircle2, AlertCircle, Eye, EyeOff, X, Sparkles, Mail, Lock, Pencil, Save } from "lucide-react";
+import { User, Shield, UserPlus, Search, Key, Trash2, CheckCircle2, AlertCircle, Eye, EyeOff, X, Sparkles, Mail, Lock, Pencil, Save, Smartphone } from "lucide-react";
 import { DEPARTMENT_OFFICES, DEPT_OFFICE_LABELS } from "../departments";
 
 export interface UserAccount {
@@ -8,6 +8,7 @@ export interface UserAccount {
   fullName: string;
   role: string;
   email: string | null;
+  phoneNumber?: string | null;
   department?: string | null;
   createdAt?: string;
 }
@@ -22,6 +23,7 @@ interface AccountManagementModalProps {
     role: string;
     fullName: string;
     email?: string;
+    phoneNumber?: string;
     department?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   onEditUser?: (
@@ -31,6 +33,7 @@ interface AccountManagementModalProps {
       username?: string;
       role?: string;
       email?: string;
+      phoneNumber?: string;
       department?: string;
       password?: string;
     }
@@ -60,6 +63,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
   const [formFullName, setFormFullName] = useState("");
   const [formUsername, setFormUsername] = useState("");
   const [formEmail, setFormEmail] = useState("");
+  const [formPhoneNumber, setFormPhoneNumber] = useState("");
   const [formRole, setFormRole] = useState("Dept");
   const [formDepartment, setFormDepartment] = useState(DEPARTMENT_OFFICES[0].value);
   const [formPassword, setFormPassword] = useState("");
@@ -77,6 +81,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
   const [editRole, setEditRole] = useState("Dept");
   const [editDepartment, setEditDepartment] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editPhoneNumber, setEditPhoneNumber] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [isEditSubmitting, setIsEditSubmitting] = useState(false);
@@ -141,6 +146,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
       fullName: formFullName.trim(),
       username: formUsername.trim().toLowerCase(),
       email: formEmail.trim() || undefined,
+      phoneNumber: formPhoneNumber.trim() || undefined,
       role: formRole,
       password: formPassword,
     });
@@ -152,6 +158,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
       setFormFullName("");
       setFormUsername("");
       setFormEmail("");
+      setFormPhoneNumber("");
       setFormPassword("");
       setTimeout(() => {
         setFormSuccess(null);
@@ -170,6 +177,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     setEditRole(user.role || "Dept");
     setEditDepartment(user.department || DEPARTMENT_OFFICES[0].value);
     setEditEmail(user.email || "");
+    setEditPhoneNumber(user.phoneNumber || "");
     setEditPassword("");
     setShowEditPassword(false);
     setEditError(null);
@@ -182,6 +190,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
     setEditRole("Dept");
     setEditDepartment("");
     setEditEmail("");
+    setEditPhoneNumber("");
     setEditPassword("");
     setShowEditPassword(false);
     setEditError(null);
@@ -231,6 +240,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
       role: editRole,
       department: editRole === "Dept" ? editDepartment : (editDepartment || undefined),
       email: editEmail.trim() || undefined,
+      phoneNumber: editPhoneNumber.trim() || undefined,
       password: editPassword.trim() || undefined,
     });
     setIsEditSubmitting(false);
@@ -416,6 +426,23 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                   </div>
                 </div>
 
+                {/* Mobile Phone (for SMS Alerts & OTP) */}
+                <div>
+                  <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
+                    Mobile Phone (for SMS Alerts &amp; OTP)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="tel"
+                      placeholder="e.g. 09171234567"
+                      value={formPhoneNumber}
+                      onChange={(e) => setFormPhoneNumber(e.target.value)}
+                      className="w-full text-xs font-sans pl-8 pr-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                    />
+                    <Smartphone className="w-3.5 h-3.5 text-slate-600 absolute left-2.5 top-2.5" />
+                  </div>
+                </div>
+
                 {/* Password Input & Generator */}
                 <div className="sm:col-span-2">
                   <div className="flex justify-between items-center mb-1">
@@ -492,7 +519,7 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                   <tr>
                     <th className="py-3 px-4">User Account</th>
                     <th className="py-3 px-4">Role</th>
-                    <th className="py-3 px-4">Email Address</th>
+                    <th className="py-3 px-4">Contact (SMS &amp; Email)</th>
                     <th className="py-3 px-4">Created</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
@@ -528,7 +555,23 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                           </td>
 
                           <td className="py-3 px-4 text-slate-700 font-mono">
-                            {u.email ? u.email : <span className="text-slate-500 font-sans italic">Not linked</span>}
+                            <div className="space-y-0.5">
+                              {u.phoneNumber ? (
+                                <div className="flex items-center gap-1.5 text-[#241012] font-semibold text-xs">
+                                  <Smartphone className="w-3.5 h-3.5 text-[#6B1420] shrink-0" />
+                                  <span>{u.phoneNumber}</span>
+                                </div>
+                              ) : (
+                                <span className="text-amber-700 text-[11px] font-sans flex items-center gap-1">
+                                  <Smartphone className="w-3 h-3 shrink-0" /> No mobile phone
+                                </span>
+                              )}
+                              {u.email && (
+                                <div className="text-[11px] text-slate-600 truncate max-w-[180px]">
+                                  {u.email}
+                                </div>
+                              )}
+                            </div>
                           </td>
 
                           <td className="py-3 px-4 text-slate-700 font-mono">
@@ -687,6 +730,23 @@ export const AccountManagementModal: React.FC<AccountManagementModalProps> = ({
                       className="w-full text-xs font-sans pl-8 pr-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
                     />
                     <Mail className="w-3.5 h-3.5 text-slate-600 absolute left-2.5 top-2.5" />
+                  </div>
+                </div>
+
+                {/* Mobile Phone Number */}
+                <div>
+                  <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
+                    Mobile Phone (for SMS Alerts &amp; OTP)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="tel"
+                      value={editPhoneNumber}
+                      onChange={(e) => setEditPhoneNumber(e.target.value)}
+                      placeholder="e.g. 09171234567"
+                      className="w-full text-xs font-sans pl-8 pr-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                    />
+                    <Smartphone className="w-3.5 h-3.5 text-slate-600 absolute left-2.5 top-2.5" />
                   </div>
                 </div>
 

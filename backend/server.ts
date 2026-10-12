@@ -9,7 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
 import { pool, testConnection, mapJobOrderRow, mapStaffRow, mapLogRow, mapNotificationRow, mapBudgetItemRow } from "./db";
-import { sendOtpEmail, sendTaskDispatchEmail, sendGenericNotificationEmail } from "./sendOtpEmail";
+import { sendOtpSms, maskPhoneNumber, normalizePhoneNumber, sendTaskDispatchSms, sendGenericNotificationSms } from "./sendOtpSms";
 import rateLimit from "express-rate-limit";
 
 dotenv.config();
@@ -225,7 +225,7 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, username: user.username, role: user.role, fullName: user.full_name, email: user.email, department: user.department },
+      user: { id: user.id, username: user.username, role: user.role, fullName: user.full_name, email: user.email, phoneNumber: user.phone_number, department: user.department },
     });
   } catch (err) {
     console.error("Login error:", err);
@@ -233,38 +233,90 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
   }
 });
 
-// Endpoint: Request Password Reset Verification Code (OTP)
-app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
-  const { email } = req.body;
-  if (!email || typeof email !== "string") {
-    return res.status(400).json({ error: "Please enter your registered Gmail or email address." });
+// Endpoint: Lookup User Phone Number (for SMS & Firebase Phone Auth)
+app.post("/api/auth/lookup-phone", authLimiter, async (req, res) => {
+  const { identifier } = req.body;
+  if (!identifier || typeof identifier !== "string") {
+    return res.status(400).json({ error: "Please enter your username or registered mobile number." });
   }
 
-  const normalized = email.trim().toLowerCase();
+  const clean = identifier.trim();
+  const cleanPhone = normalizePhoneNumber(clean);
+
   try {
     const result = await pool.query(
-      "SELECT id, username, email, full_name FROM users WHERE LOWER(email) = $1 OR LOWER(username) = $1",
-      [normalized]
+      `SELECT id, username, phone_number, full_name FROM users
+       WHERE (phone_number IS NOT NULL AND (phone_number = $1 OR phone_number = $2))
+          OR LOWER(username) = LOWER($2)`,
+      [cleanPhone, clean]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "No account found with that username or mobile number." });
+    }
+
+    const user = result.rows[0];
+    if (!user.phone_number) {
+      return res.status(400).json({
+        error: "This account does not have a registered mobile number. Please contact your PPO administrator.",
+      });
+    }
+
+    const normPhone = normalizePhoneNumber(user.phone_number);
+    res.json({
+      ok: true,
+      phoneNumber: normPhone,
+      maskedPhone: maskPhoneNumber(normPhone),
+      username: user.username,
+    });
+  } catch (err) {
+    console.error("Lookup phone error:", err);
+    res.status(500).json({ error: "Failed to verify phone number." });
+  }
+});
+
+// Endpoint: Request Password Reset Verification Code via SMS (OTP)
+app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
+  const { identifier, phoneNumber, phone, email } = req.body;
+  const target = (identifier || phoneNumber || phone || email || "").toString().trim();
+  if (!target) {
+    return res.status(400).json({ error: "Please enter your registered mobile number or username." });
+  }
+
+  try {
+    const cleanPhone = normalizePhoneNumber(target);
+    const result = await pool.query(
+      `SELECT id, username, email, phone_number, full_name FROM users
+       WHERE (phone_number IS NOT NULL AND (phone_number = $1 OR phone_number = $2))
+          OR LOWER(username) = LOWER($2)
+          OR (email IS NOT NULL AND LOWER(email) = LOWER($2))`,
+      [cleanPhone, target]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({
-        error: "No account found associated with that email. Please check your address or contact PPO Admin."
+        error: "No account found associated with that mobile number or username. Please check your input or contact PPO Admin."
       });
     }
 
     const user = result.rows[0];
-    const accountEmail = (user.email || normalized).toLowerCase();
+    if (!user.phone_number) {
+      return res.status(400).json({
+        error: "This account does not have a mobile phone number on file. Please contact your PPO administrator to update your mobile number.",
+      });
+    }
+
+    const recipientPhone = normalizePhoneNumber(user.phone_number);
 
     // Basic resend cooldown: block spamming the same account with new codes.
     const recent = await pool.query(
       `SELECT id FROM password_resets
-       WHERE LOWER(email) = $1 AND used = FALSE AND created_at > NOW() - INTERVAL '60 seconds'
+       WHERE phone_number = $1 AND used = FALSE AND created_at > NOW() - INTERVAL '60 seconds'
        ORDER BY created_at DESC LIMIT 1`,
-      [accountEmail]
+      [recipientPhone]
     );
     if (recent.rows.length > 0) {
-      return res.status(429).json({ error: "Please wait about a minute before requesting another code." });
+      return res.status(429).json({ error: "Please wait about a minute before requesting another SMS code." });
     }
 
     // Generate secure 6-digit OTP, store only its bcrypt hash — never the raw code.
@@ -273,89 +325,98 @@ app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
     await pool.query(
-      `INSERT INTO password_resets (email, otp_hash, expires_at)
-       VALUES ($1, $2, $3)`,
-      [accountEmail, otpHash, expiresAt]
+      `INSERT INTO password_resets (phone_number, email, otp_hash, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [recipientPhone, user.email, otpHash, expiresAt]
     );
 
-    if (!user.email) {
-      return res.status(400).json({
-        error: "This account does not have an email address on file. Please contact your PPO administrator to reset your password.",
-      });
-    }
-
     try {
-      await sendOtpEmail(user.email, otp);
-      console.log(`[AUTH RECOVERY] OTP emailed to ${user.email} for ${user.username}`);
+      await sendOtpSms(recipientPhone, otp);
+      console.log(`[AUTH RECOVERY] SMS OTP dispatched to ${recipientPhone} for ${user.username}`);
     } catch (err) {
-      console.error(`[AUTH RECOVERY] Failed to email OTP to ${user.email}:`, err);
+      console.error(`[AUTH RECOVERY] Failed to send SMS OTP to ${recipientPhone}:`, err);
       return res.status(502).json({
-        error: "Could not send the verification email right now. Please try again later or contact your PPO administrator.",
+        error: "Could not dispatch the SMS verification code right now. Please try again later or contact your PPO administrator.",
       });
     }
 
-    // Mask the email for privacy (e.g. "jm***@gmail.com")
-    const [localPart, domain] = user.email.split("@");
-    const masked = localPart.length > 2
-      ? localPart.slice(0, 2) + "***@" + domain
-      : localPart[0] + "***@" + domain;
+    const masked = maskPhoneNumber(recipientPhone);
 
     res.json({
       ok: true,
-      message: `A 6-digit verification code has been sent to ${masked}. Please check your inbox (and spam folder).`,
+      message: `A 6-digit SMS verification code has been dispatched to ${masked}. Please check your phone messages.`,
+      maskedPhone: masked,
+      phoneNumber: recipientPhone,
     });
   } catch (err) {
-    console.error("Forgot password error:", err);
-    res.status(500).json({ error: "Could not process password recovery." });
+    console.error("Forgot password SMS error:", err);
+    res.status(500).json({ error: "Could not process SMS password recovery." });
   }
 });
 
-// Endpoint: Reset Password with OTP Verification Code
+// Endpoint: Reset Password with SMS OTP Verification Code
 app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
-  const { email, otp, newPassword } = req.body;
-  if (!email || !otp || !newPassword) {
-    return res.status(400).json({ error: "Email, verification code, and new password are required." });
+  const { identifier, phoneNumber, phone, email, otp, newPassword } = req.body;
+  const target = (phoneNumber || phone || identifier || email || "").toString().trim();
+  if (!target || !otp || !newPassword) {
+    return res.status(400).json({ error: "Mobile number/username, verification code, and new password are required." });
   }
   if (newPassword.length < 6) {
     return res.status(400).json({ error: "New password must be at least 6 characters long." });
   }
 
-  const normalized = email.trim().toLowerCase();
+  const cleanPhone = normalizePhoneNumber(target);
 
   try {
+    const userResult = await pool.query(
+      `SELECT id, username, email, phone_number, full_name FROM users
+       WHERE (phone_number IS NOT NULL AND (phone_number = $1 OR phone_number = $2))
+          OR LOWER(username) = LOWER($2)
+          OR (email IS NOT NULL AND LOWER(email) = LOWER($2))`,
+      [cleanPhone, target]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "User account could not be found." });
+    }
+
+    const user = userResult.rows[0];
+    const userPhone = user.phone_number ? normalizePhoneNumber(user.phone_number) : cleanPhone;
+
     const resetResult = await pool.query(
       `SELECT id, otp_hash, expires_at, attempts FROM password_resets
-       WHERE LOWER(email) = $1 AND used = FALSE
+       WHERE (phone_number = $1 OR phone_number = $2 OR (email IS NOT NULL AND LOWER(email) = LOWER($3)))
+         AND used = FALSE
        ORDER BY created_at DESC LIMIT 1`,
-      [normalized]
+      [userPhone, cleanPhone, user.email || ""]
     );
 
     if (resetResult.rows.length === 0) {
-      return res.status(400).json({ error: "No pending reset request for this email. Please request a new code." });
+      return res.status(400).json({ error: "No pending reset request for this phone number. Please request a new SMS code." });
     }
 
     const record = resetResult.rows[0];
 
     if (new Date(record.expires_at) < new Date()) {
-      return res.status(400).json({ error: "Verification code has expired (15 min limit). Please request a new code." });
+      return res.status(400).json({ error: "Verification code has expired (15 min limit). Please request a new SMS code." });
     }
     if (record.attempts >= 5) {
-      return res.status(429).json({ error: "Too many incorrect attempts. Please request a new code." });
+      return res.status(429).json({ error: "Too many incorrect attempts. Please request a new SMS code." });
     }
 
     const otpMatches = await bcrypt.compare(otp.trim(), record.otp_hash);
     if (!otpMatches) {
       await pool.query("UPDATE password_resets SET attempts = attempts + 1 WHERE id = $1", [record.id]);
-      return res.status(400).json({ error: "Invalid verification code. Please check your email and try again." });
+      return res.status(400).json({ error: "Invalid verification code. Please check your SMS messages and try again." });
     }
 
     const newHash = await bcrypt.hash(newPassword, 12);
     const result = await pool.query(
       `UPDATE users
        SET password_hash = $1
-       WHERE LOWER(email) = $2 OR LOWER(username) = $2
+       WHERE id = $2
        RETURNING username, full_name`,
-      [newHash, normalized]
+      [newHash, user.id]
     );
 
     if (result.rowCount === 0) {
@@ -378,7 +439,7 @@ app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
 app.get("/api/auth/me", authenticateToken, async (req: AuthedRequest, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, username, role, full_name as "fullName", email, department FROM users WHERE id = $1`,
+      `SELECT id, username, role, full_name as "fullName", email, phone_number as "phoneNumber", department FROM users WHERE id = $1`,
       [req.user!.sub]
     );
     const user = result.rows[0];
@@ -391,12 +452,10 @@ app.get("/api/auth/me", authenticateToken, async (req: AuthedRequest, res) => {
 });
 
 // Self-service profile edit — any logged-in role can update their own
-// display name and email (never their own username, role, or department;
-// those stay locked down the same way they are for PPO-driven edits via
-// PATCH /api/users/:id).
+// display name, email, and mobile phone number
 app.patch("/api/auth/me", authenticateToken, async (req: AuthedRequest, res) => {
   try {
-    const { fullName, email } = req.body;
+    const { fullName, email, phoneNumber } = req.body;
     if (!fullName || !String(fullName).trim()) {
       return res.status(400).json({ error: "Full name is required." });
     }
@@ -409,10 +468,15 @@ app.patch("/api/auth/me", authenticateToken, async (req: AuthedRequest, res) => 
       }
     }
 
+    let cleanPhone: string | null = null;
+    if (phoneNumber && String(phoneNumber).trim()) {
+      cleanPhone = normalizePhoneNumber(String(phoneNumber).trim());
+    }
+
     const result = await pool.query(
-      `UPDATE users SET full_name = $1, email = $2 WHERE id = $3
-       RETURNING id, username, role, full_name as "fullName", email, department`,
-      [String(fullName).trim(), cleanEmail, req.user!.sub]
+      `UPDATE users SET full_name = $1, email = $2, phone_number = COALESCE($3, phone_number) WHERE id = $4
+       RETURNING id, username, role, full_name as "fullName", email, phone_number as "phoneNumber", department`,
+      [String(fullName).trim(), cleanEmail, cleanPhone, req.user!.sub]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Account no longer exists." });
@@ -455,6 +519,36 @@ app.get("/api/system/ai-status", async (req, res) => {
   res.json({ aiEnabled: ai !== null });
 });
 
+app.get("/api/system/sms-status", async (req, res) => {
+  const provider = (process.env.SMS_PROVIDER || "console").toLowerCase();
+  const configured = provider === "semaphore"
+    ? Boolean(process.env.SEMAPHORE_API_KEY)
+    : provider === "twilio"
+    ? Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER)
+    : provider === "textbee"
+    ? Boolean(process.env.TEXTBEE_API_KEY)
+    : true;
+  res.json({ provider, configured });
+});
+
+app.post("/api/system/test-sms", authenticateToken, async (req: AuthedRequest, res) => {
+  try {
+    const { phoneNumber, message } = req.body;
+    if (!phoneNumber) {
+      return res.status(400).json({ error: "Mobile phone number is required." });
+    }
+    const targetPhone = normalizePhoneNumber(String(phoneNumber));
+    const text = message
+      ? String(message)
+      : `[JORS COSCA] Test alert: SMS notifications are active via ${(process.env.SMS_PROVIDER || "console").toUpperCase()}.`;
+    const result = await sendSmsMessage(targetPhone, text, "MANUAL TEST SMS");
+    res.json({ ok: true, mode: result.mode, phone: targetPhone });
+  } catch (err: any) {
+    console.error("Test SMS failed:", err);
+    res.status(500).json({ error: err.message || "Failed to dispatch test SMS." });
+  }
+});
+
 // ---------------------------------------------------------------
 // PUBLIC: Department list for the login page dropdown.
 // ---------------------------------------------------------------
@@ -494,7 +588,7 @@ function getDeptLabelByValue(value: string): string | undefined {
 app.get("/api/users", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, username, role, full_name as \"fullName\", email, department, created_at as \"createdAt\" FROM users ORDER BY created_at DESC"
+      "SELECT id, username, role, full_name as \"fullName\", email, phone_number as \"phoneNumber\", department, created_at as \"createdAt\" FROM users ORDER BY created_at DESC"
     );
     res.json({ users: result.rows });
   } catch (err: any) {
@@ -505,7 +599,7 @@ app.get("/api/users", authenticateToken, requireRole("PPO"), async (req: AuthedR
 
 app.post("/api/users", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
   try {
-    const { username, password, role, fullName, email, department } = req.body;
+    const { username, password, role, fullName, email, phoneNumber, department } = req.body;
 
     if (!username || !password || !role || !fullName) {
       return res.status(400).json({ error: "Username, password, role, and full name are required." });
@@ -532,6 +626,11 @@ app.post("/api/users", authenticateToken, requireRole("PPO"), async (req: Authed
       }
     }
 
+    let cleanPhone: string | null = null;
+    if (phoneNumber && String(phoneNumber).trim()) {
+      cleanPhone = normalizePhoneNumber(String(phoneNumber).trim());
+    }
+
     // Dept accounts must be locked to a real, known office — this is what the
     // login route later checks the "Department Office" dropdown against.
     let cleanDepartment: string | null = null;
@@ -545,16 +644,17 @@ app.post("/api/users", authenticateToken, requireRole("PPO"), async (req: Authed
     const passwordHash = await bcrypt.hash(password, 12);
 
     const result = await pool.query(
-      `INSERT INTO users (username, password_hash, role, full_name, email, department)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO users (username, password_hash, role, full_name, email, phone_number, department)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (username) DO UPDATE
          SET password_hash = EXCLUDED.password_hash,
              role = EXCLUDED.role,
              full_name = EXCLUDED.full_name,
              email = EXCLUDED.email,
+             phone_number = EXCLUDED.phone_number,
              department = EXCLUDED.department
-       RETURNING id, username, role, full_name as "fullName", email, department, created_at as "createdAt"`,
-      [cleanUsername, passwordHash, role, String(fullName).trim(), cleanEmail, cleanDepartment]
+       RETURNING id, username, role, full_name as "fullName", email, phone_number as "phoneNumber", department, created_at as "createdAt"`,
+      [cleanUsername, passwordHash, role, String(fullName).trim(), cleanEmail, cleanPhone, cleanDepartment]
     );
 
     const createdUser = result.rows[0];
@@ -587,7 +687,7 @@ app.patch("/api/users/:id", authenticateToken, requireRole("PPO", "Admin"), asyn
       return res.status(400).json({ error: "Invalid user ID." });
     }
 
-    const { fullName, username, role, email, department, password } = req.body;
+    const { fullName, username, role, email, phoneNumber, department, password } = req.body;
     if (!fullName || !String(fullName).trim()) {
       return res.status(400).json({ error: "Full name is required." });
     }
@@ -595,7 +695,7 @@ app.patch("/api/users/:id", authenticateToken, requireRole("PPO", "Admin"), asyn
     const cleanFullName = String(fullName).trim();
 
     const check = await pool.query(
-      "SELECT id, username, role, department, full_name as \"fullName\", email FROM users WHERE id = $1",
+      "SELECT id, username, role, department, full_name as \"fullName\", email, phone_number as \"phoneNumber\" FROM users WHERE id = $1",
       [userId]
     );
     if (check.rows.length === 0) {
@@ -644,6 +744,12 @@ app.patch("/api/users/:id", authenticateToken, requireRole("PPO", "Admin"), asyn
       cleanEmail = targetUser.email;
     }
 
+    // Validate phone
+    let cleanPhone: string | null = targetUser.phoneNumber;
+    if (phoneNumber !== undefined) {
+      cleanPhone = phoneNumber && String(phoneNumber).trim() ? normalizePhoneNumber(String(phoneNumber).trim()) : null;
+    }
+
     // Validate department
     let cleanDepartment: string | null = targetUser.department;
     if (cleanRole === "Dept") {
@@ -675,18 +781,18 @@ app.patch("/api/users/:id", authenticateToken, requireRole("PPO", "Admin"), asyn
     if (passwordHashToSet) {
       result = await pool.query(
         `UPDATE users
-         SET full_name = $1, username = $2, role = $3, email = $4, department = $5, password_hash = $6
-         WHERE id = $7
-         RETURNING id, username, role, full_name as "fullName", email, department, created_at as "createdAt"`,
-        [cleanFullName, cleanUsername, cleanRole, cleanEmail, cleanDepartment, passwordHashToSet, userId]
+         SET full_name = $1, username = $2, role = $3, email = $4, phone_number = $5, department = $6, password_hash = $7
+         WHERE id = $8
+         RETURNING id, username, role, full_name as "fullName", email, phone_number as "phoneNumber", department, created_at as "createdAt"`,
+        [cleanFullName, cleanUsername, cleanRole, cleanEmail, cleanPhone, cleanDepartment, passwordHashToSet, userId]
       );
     } else {
       result = await pool.query(
         `UPDATE users
-         SET full_name = $1, username = $2, role = $3, email = $4, department = $5
-         WHERE id = $6
-         RETURNING id, username, role, full_name as "fullName", email, department, created_at as "createdAt"`,
-        [cleanFullName, cleanUsername, cleanRole, cleanEmail, cleanDepartment, userId]
+         SET full_name = $1, username = $2, role = $3, email = $4, phone_number = $5, department = $6
+         WHERE id = $7
+         RETURNING id, username, role, full_name as "fullName", email, phone_number as "phoneNumber", department, created_at as "createdAt"`,
+        [cleanFullName, cleanUsername, cleanRole, cleanEmail, cleanPhone, cleanDepartment, userId]
       );
     }
 
@@ -1346,33 +1452,34 @@ async function matchStaffForJobType(jobType: string): Promise<{ assignedStaff: s
 // via their linked user account. Returns null if the name doesn't match a
 // staff row, the row isn't linked to a user account yet, or that account
 // has no email on file — any of which just means the dispatch email is
-// silently skipped rather than the approval failing.
-async function getStaffEmailByName(staffName: string): Promise<string | null> {
+// Look up a technician's mobile phone number by their staff name.
+async function getStaffPhoneByName(staffName: string): Promise<string | null> {
   if (!staffName || staffName === "Outsource") return null;
   const result = await pool.query(
-    `SELECT u.email FROM staff s
+    `SELECT u.phone_number FROM staff s
      JOIN users u ON u.id = s.user_id
      WHERE s.name = $1`,
     [staffName]
   );
-  const email = result.rows[0]?.email;
-  return email ? String(email) : null;
+  const phone = result.rows[0]?.phone_number;
+  return phone ? String(phone) : null;
 }
 
-// Best-effort dispatch email — logs failures instead of throwing, so a
-// down/misconfigured email provider never blocks a PPO or Finance approval.
+// Best-effort dispatch SMS — sends SMS notification directly to technicians' mobile phones
 async function notifyStaffOfDispatch(ticket: ReturnType<typeof mapJobOrderRow>) {
-  // Email every technician on the job, not just the lead — a team member
-  // added purely for extra hands still needs to know they're dispatched.
+  // SMS every technician on the job, not just the lead
   const teams = await getTeamsForJobOrders([ticket.id]);
   const team = teams.get(ticket.id) || [];
   const names = team.length > 0 ? team.map((m) => m.name) : [ticket.assignedStaff];
 
   for (const staffName of names) {
     try {
-      const email = await getStaffEmailByName(staffName);
-      if (!email) continue;
-      await sendTaskDispatchEmail(email, staffName, {
+      const phone = await getStaffPhoneByName(staffName);
+      if (!phone) {
+        console.log(`[DISPATCH SMS] Staff member ${staffName} has no phone number on file.`);
+        continue;
+      }
+      await sendTaskDispatchSms(phone, staffName, {
         ticketId: ticket.id,
         office: ticket.office,
         jobType: ticket.jobType,
@@ -1380,71 +1487,64 @@ async function notifyStaffOfDispatch(ticket: ReturnType<typeof mapJobOrderRow>) 
         isEmergency: Boolean(ticket.isEmergency),
         estimatedCost: ticket.estimatedCost,
       });
-      console.log(`[DISPATCH EMAIL] Sent to ${email} for ${ticket.id} (${staffName})`);
+      console.log(`[DISPATCH SMS] Sent to ${phone} for ${ticket.id} (${staffName})`);
     } catch (err) {
-      console.error(`[DISPATCH EMAIL] Failed to email staff for ${ticket.id}:`, err);
+      console.error(`[DISPATCH SMS] Failed to SMS staff for ${ticket.id}:`, err);
     }
   }
 }
 
 // Every non-Dept, non-Staff notification role (PPO, President, Finance) can
-// have more than one account holding that role at once, so a "notification"
-// for that role means "email every user account with that role and an
-// email on file" — not just one person.
-async function getRoleEmails(role: string): Promise<string[]> {
+// have more than one account holding that role at once, so an SMS notification
+// goes to every user account with that role and a mobile phone number on file.
+async function getRolePhones(role: string): Promise<string[]> {
   const result = await pool.query(
-    "SELECT email FROM users WHERE role = $1 AND email IS NOT NULL AND email <> ''",
+    "SELECT phone_number FROM users WHERE role = $1 AND phone_number IS NOT NULL AND phone_number <> ''",
     [role]
   );
-  return result.rows.map((r) => String(r.email));
+  return result.rows.map((r) => String(r.phone_number));
 }
 
-// Dept accounts are locked to one office each (users.department, a short
-// value like "vpaa"), while job_orders.office stores the full label
-// ("Office of the Vice President for Academic Affairs (VPAA)"). Only the
-// Dept account(s) for the SAME office as the ticket should be emailed —
-// not every Dept account school-wide.
-async function getDeptEmailsForOffice(officeLabel: string): Promise<string[]> {
+// Dept accounts are locked to one office each. Only the Dept account(s)
+// for the SAME office as the ticket should be notified by SMS.
+async function getDeptPhonesForOffice(officeLabel: string): Promise<string[]> {
   const result = await pool.query(
-    "SELECT email, department FROM users WHERE role = 'Dept' AND email IS NOT NULL AND email <> ''"
+    "SELECT phone_number, department FROM users WHERE role = 'Dept' AND phone_number IS NOT NULL AND phone_number <> ''"
   );
   return result.rows
     .filter((r) => getDeptLabelByValue(r.department) === officeLabel)
-    .map((r) => String(r.email));
+    .map((r) => String(r.phone_number));
 }
 
-// Best-effort fan-out for a role-wide notification (PPO / President /
-// Finance). Each recipient is emailed independently — one bad address
-// never stops the rest from going out, and none of this ever throws back
-// into the request handler.
+// Best-effort fan-out for a role-wide SMS notification (PPO / President / Finance)
 async function notifyRoleByEmail(role: string, subject: string, message: string, ticketId: string) {
   try {
-    const emails = await getRoleEmails(role);
-    for (const email of emails) {
+    const phones = await getRolePhones(role);
+    for (const phone of phones) {
       try {
-        await sendGenericNotificationEmail(email, subject, message, ticketId);
+        await sendGenericNotificationSms(phone, subject, message, ticketId);
       } catch (err) {
-        console.error(`[NOTIFICATION EMAIL] Failed to email ${role} account ${email} for ${ticketId}:`, err);
+        console.error(`[NOTIFICATION SMS] Failed to SMS ${role} account ${phone} for ${ticketId}:`, err);
       }
     }
   } catch (err) {
-    console.error(`[NOTIFICATION EMAIL] Failed to look up ${role} emails for ${ticketId}:`, err);
+    console.error(`[NOTIFICATION SMS] Failed to look up ${role} phone numbers for ${ticketId}:`, err);
   }
 }
 
-// Same idea, scoped to the Dept account(s) tied to the ticket's office.
+// Same idea, scoped to the Dept account(s) tied to the ticket's office via SMS.
 async function notifyDeptByEmail(officeLabel: string, subject: string, message: string, ticketId: string) {
   try {
-    const emails = await getDeptEmailsForOffice(officeLabel);
-    for (const email of emails) {
+    const phones = await getDeptPhonesForOffice(officeLabel);
+    for (const phone of phones) {
       try {
-        await sendGenericNotificationEmail(email, subject, message, ticketId);
+        await sendGenericNotificationSms(phone, subject, message, ticketId);
       } catch (err) {
-        console.error(`[NOTIFICATION EMAIL] Failed to email Dept account ${email} for ${ticketId}:`, err);
+        console.error(`[NOTIFICATION SMS] Failed to SMS Dept account ${phone} for ${ticketId}:`, err);
       }
     }
   } catch (err) {
-    console.error(`[NOTIFICATION EMAIL] Failed to look up Dept emails for ${officeLabel} / ${ticketId}:`, err);
+    console.error(`[NOTIFICATION SMS] Failed to look up Dept phone numbers for ${officeLabel} / ${ticketId}:`, err);
   }
 }
 
@@ -3462,6 +3562,22 @@ async function applySchemaMigrations() {
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS previous_status VARCHAR(20)");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_changed_by_user_id INT REFERENCES users(id)");
     await pool.query("ALTER TABLE job_orders ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMP");
+
+    // Phone notification columns and indexes
+    await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(25)");
+    await pool.query("ALTER TABLE password_resets ADD COLUMN IF NOT EXISTS phone_number VARCHAR(25)");
+    await pool.query("CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number)");
+    await pool.query("CREATE INDEX IF NOT EXISTS idx_password_resets_phone ON password_resets(phone_number)");
+
+    // Auto-link staff worker profiles to user accounts so SMS dispatch can look up their mobile numbers
+    await pool.query(`
+      UPDATE staff s
+      SET user_id = u.id
+      FROM users u
+      WHERE u.role = 'Staff'
+        AND LOWER(s.name) = LOWER(u.full_name)
+        AND (s.user_id IS NULL OR s.user_id <> u.id)
+    `);
 
     // Backfill deadlines for old tickets that were created before the deadline
     // column existed. Uses the same SLA windows as computeDeadline() so values

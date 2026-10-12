@@ -14,6 +14,8 @@ import {
   X,
   Sparkles,
   Mail,
+  Smartphone,
+  Phone,
   UserPlus,
   Search,
   Info,
@@ -96,14 +98,15 @@ interface SettingsModalProps {
   // Removes a worker row that has no linked login account (leftover/mock data)
   onDeleteStaff?: (staffId: number) => Promise<{ ok: boolean; error?: string }>;
   // Account Profile tab — lets the logged-in user edit their own info
-  currentUser?: { id?: number; username: string; role: string; fullName: string; email?: string; department?: string } | null;
-  onUpdateOwnProfile?: (data: { fullName: string; email?: string }) => Promise<{ ok: boolean; error?: string }>;
-  // Same OTP-via-email flow as the login page's "Forgot Access Key"
-  onRequestPasswordOtp?: (email: string) => Promise<{ ok: boolean; message?: string; error?: string }>;
-  onConfirmPasswordReset?: (email: string, otp: string, newPassword: string) => Promise<{ ok: boolean; message?: string; error?: string }>;
+  currentUser?: { id?: number; username: string; role: string; fullName: string; email?: string; phoneNumber?: string; department?: string } | null;
+  onUpdateOwnProfile?: (data: { fullName: string; email?: string; phoneNumber?: string }) => Promise<{ ok: boolean; error?: string }>;
+  // SMS OTP flow for password reset
+  onRequestPasswordOtp?: (identifier: string) => Promise<{ ok: boolean; message?: string; error?: string }>;
+  onConfirmPasswordReset?: (identifier: string, otp: string, newPassword: string) => Promise<{ ok: boolean; message?: string; error?: string }>;
   // SLA Timeline Defaults (PPO-configurable)
   slaDefaults?: { regularDays: number; moderateDays: number; emergencyHours: number };
   onUpdateSlaDefaults?: (sla: { regularDays: number; moderateDays: number; emergencyHours: number }) => Promise<{ ok: boolean; error?: string }>;
+  onSendTestSms?: (phoneNumber: string) => Promise<{ ok: boolean; mode?: string; phone?: string; error?: string }>;
 }
 
 export interface SkillOption {
@@ -162,6 +165,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onConfirmPasswordReset,
   slaDefaults = { regularDays: 5, moderateDays: 2, emergencyHours: 4 },
   onUpdateSlaDefaults,
+  onSendTestSms,
 }) => {
   type TabType = "accounts" | "notifications" | "appearance" | "profile" | "workload" | "sla" | "security" | "system";
 
@@ -177,9 +181,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<TabType>(() => (canManageAccounts ? "accounts" : "profile"));
 
-  // Account Profile — self-service name/email edit + password change
+  // Account Profile — self-service name/email/phone edit + password change
   const [profileFullName, setProfileFullName] = useState(currentUser?.fullName || "");
   const [profileEmail, setProfileEmail] = useState(currentUser?.email || "");
+  const [profilePhoneNumber, setProfilePhoneNumber] = useState(currentUser?.phoneNumber || "");
   const [profileSaveBusy, setProfileSaveBusy] = useState(false);
 
   // SLA Timeline Configuration State
@@ -211,7 +216,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       alert(res.error || "Failed to update SLA timelines.");
     }
   };
-  // Change Password — same 3-step OTP-via-email flow as "Forgot Access Key"
+  // Change Password — 3-step SMS OTP flow
   const [pwStep, setPwStep] = useState<1 | 2 | 3>(1);
   const [pwOtp, setPwOtp] = useState("");
   const [pwNewPassword, setPwNewPassword] = useState("");
@@ -223,12 +228,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     setProfileFullName(currentUser?.fullName || "");
     setProfileEmail(currentUser?.email || "");
-  }, [currentUser?.fullName, currentUser?.email]);
+    setProfilePhoneNumber(currentUser?.phoneNumber || "");
+  }, [currentUser?.fullName, currentUser?.email, currentUser?.phoneNumber]);
 
   const handleSaveOwnProfile = async () => {
     if (!onUpdateOwnProfile || !profileFullName.trim()) return;
     setProfileSaveBusy(true);
-    const res = await onUpdateOwnProfile({ fullName: profileFullName.trim(), email: profileEmail.trim() || undefined });
+    const res = await onUpdateOwnProfile({
+      fullName: profileFullName.trim(),
+      email: profileEmail.trim() || undefined,
+      phoneNumber: profilePhoneNumber.trim() || undefined,
+    });
     setProfileSaveBusy(false);
     showToast(res.ok ? "Profile updated." : (res.error || "Could not update profile."));
   };
@@ -243,26 +253,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleSendPwOtp = async () => {
-    if (!onRequestPasswordOtp || !currentUser?.email) return;
+    const target = currentUser?.phoneNumber || currentUser?.username || currentUser?.email;
+    if (!onRequestPasswordOtp || !target) return;
     setPwError(null);
     setPwMsg(null);
     setPwBusy(true);
-    const res = await onRequestPasswordOtp(currentUser.email);
+    const res = await onRequestPasswordOtp(target);
     setPwBusy(false);
     if (res.ok) {
-      setPwMsg(res.message || "Verification code sent.");
+      setPwMsg(res.message || "SMS verification code dispatched.");
       setPwStep(2);
     } else {
-      setPwError(res.error || "Could not send verification code.");
+      setPwError(res.error || "Could not send SMS verification code.");
     }
   };
 
   const handleConfirmPwReset = async () => {
-    if (!onConfirmPasswordReset || !currentUser?.email) return;
+    const target = currentUser?.phoneNumber || currentUser?.username || currentUser?.email;
+    if (!onConfirmPasswordReset || !target) return;
     setPwError(null);
     setPwMsg(null);
     if (!pwOtp.trim()) {
-      setPwError("Enter the verification code from your email.");
+      setPwError("Enter the 6-digit verification code from your SMS.");
       return;
     }
     if (pwNewPassword !== pwConfirmPassword) {
@@ -270,7 +282,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       return;
     }
     setPwBusy(true);
-    const res = await onConfirmPasswordReset(currentUser.email, pwOtp.trim(), pwNewPassword);
+    const res = await onConfirmPasswordReset(target, pwOtp.trim(), pwNewPassword);
     setPwBusy(false);
     if (res.ok) {
       setPwMsg(res.message || "Password updated.");
@@ -293,6 +305,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [desktopNotifEnabled, setDesktopNotifEnabled] = useState<boolean>(() => {
     return localStorage.getItem("jors_desktop_notifications") !== "false";
   });
+
+  // SMS Live Test State
+  const [testSmsPhone, setTestSmsPhone] = useState(currentUser?.phoneNumber || "");
+  const [testSmsBusy, setTestSmsBusy] = useState(false);
+  const [testSmsResult, setTestSmsResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    if (currentUser?.phoneNumber) {
+      setTestSmsPhone(currentUser.phoneNumber);
+    }
+  }, [currentUser?.phoneNumber]);
+
+  const handleSendTestSmsClick = async () => {
+    if (!testSmsPhone.trim() || !onSendTestSms) return;
+    setTestSmsBusy(true);
+    setTestSmsResult(null);
+    const res = await onSendTestSms(testSmsPhone.trim());
+    setTestSmsBusy(false);
+    if (res.ok) {
+      setTestSmsResult({
+        ok: true,
+        message: `Test SMS dispatched successfully to ${res.phone || testSmsPhone} (Gateway: ${String(res.mode || "console").toUpperCase()})! Check your phone or server terminal.`,
+      });
+    } else {
+      setTestSmsResult({
+        ok: false,
+        message: res.error || "Failed to dispatch test SMS.",
+      });
+    }
+  };
 
   // Appearance State — uses props from App.tsx (persisted centrally)
   const themeMode = propThemeMode;
@@ -417,6 +459,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [formFullName, setFormFullName] = useState("");
   const [formUsername, setFormUsername] = useState("");
   const [formEmail, setFormEmail] = useState("");
+  const [formPhoneNumber, setFormPhoneNumber] = useState("");
   const [formRole, setFormRole] = useState("Dept");
   const [formDepartment, setFormDepartment] = useState(DEPARTMENT_OFFICES[0].value);
   const [formPassword, setFormPassword] = useState("");
@@ -436,6 +479,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [editRole, setEditRole] = useState("Dept");
   const [editDepartment, setEditDepartment] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editPhoneNumber, setEditPhoneNumber] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [isEditSubmitting, setIsEditSubmitting] = useState(false);
@@ -530,6 +574,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       fullName: formFullName.trim(),
       username: formUsername.trim().toLowerCase(),
       email: formEmail.trim() || undefined,
+      phoneNumber: formPhoneNumber.trim() || undefined,
       role: formRole,
       password: formPassword,
       department: formRole === "Dept" ? formDepartment : undefined,
@@ -541,6 +586,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setFormFullName("");
       setFormUsername("");
       setFormEmail("");
+      setFormPhoneNumber("");
       setFormPassword("");
       setFormDepartment(DEPARTMENT_OFFICES[0].value);
       setIsCreating(false);
@@ -569,6 +615,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setEditRole(user.role || "Dept");
     setEditDepartment(user.department || DEPARTMENT_OFFICES[0].value);
     setEditEmail(user.email || "");
+    setEditPhoneNumber(user.phoneNumber || "");
     setEditPassword("");
     setShowEditPassword(false);
     setEditError(null);
@@ -581,6 +628,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setEditRole("Dept");
     setEditDepartment("");
     setEditEmail("");
+    setEditPhoneNumber("");
     setEditPassword("");
     setShowEditPassword(false);
     setEditError(null);
@@ -630,6 +678,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       role: editRole,
       department: editRole === "Dept" ? editDepartment : (editDepartment || undefined),
       email: editEmail.trim() || undefined,
+      phoneNumber: editPhoneNumber.trim() || undefined,
       password: editPassword.trim() || undefined,
     });
     setIsEditSubmitting(false);
@@ -901,6 +950,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     <div>
                       <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
+                        Mobile Phone (for SMS Alerts &amp; OTP)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="tel"
+                          placeholder="e.g. 09171234567"
+                          value={formPhoneNumber}
+                          onChange={(e) => setFormPhoneNumber(e.target.value)}
+                          className="w-full text-xs font-sans pl-8 pr-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                        />
+                        <Smartphone className="w-3.5 h-3.5 text-slate-600 absolute left-2.5 top-2.5" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
                         Account Role *
                       </label>
                       <select
@@ -1036,7 +1101,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <th className="py-3 px-4">User</th>
                         <th className="py-3 px-4">Role / Access</th>
                         <th className="py-3 px-4">Department</th>
-                        <th className="py-3 px-4">Email Address</th>
+                        <th className="py-3 px-4">Contact (SMS &amp; Email)</th>
                         <th className="py-3 px-4">Created Date</th>
                         <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
@@ -1080,7 +1145,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               </td>
 
                               <td className="py-3 px-4 text-slate-700 font-mono">
-                                {u.email || <span className="italic font-sans text-slate-500">No email</span>}
+                                <div className="space-y-0.5">
+                                  {u.phoneNumber ? (
+                                    <div className="flex items-center gap-1.5 text-[#241012] font-semibold text-xs">
+                                      <Smartphone className="w-3.5 h-3.5 text-[#6B1420] shrink-0" />
+                                      <span>{u.phoneNumber}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-amber-700 text-[11px] font-sans flex items-center gap-1">
+                                      <Smartphone className="w-3 h-3 shrink-0" /> No mobile phone
+                                    </span>
+                                  )}
+                                  {u.email && (
+                                    <div className="text-[11px] text-slate-600 truncate max-w-[180px]">
+                                      {u.email}
+                                    </div>
+                                  )}
+                                </div>
                               </td>
 
                               <td className="py-3 px-4 text-slate-700 font-mono">
@@ -1233,6 +1314,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </div>
                         </div>
 
+                        {/* Mobile Phone Number */}
+                        <div>
+                          <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
+                            Mobile Phone (for SMS Alerts &amp; OTP)
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="tel"
+                              value={editPhoneNumber}
+                              onChange={(e) => setEditPhoneNumber(e.target.value)}
+                              placeholder="e.g. 09171234567"
+                              className="w-full text-xs font-sans pl-8 pr-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                            />
+                            <Smartphone className="w-3.5 h-3.5 text-slate-600 absolute left-2.5 top-2.5" />
+                          </div>
+                        </div>
+
                         {/* Department Office */}
                         <div className="sm:col-span-2">
                           <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
@@ -1347,7 +1445,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Notification &amp; Alert Preferences
                 </h4>
                 <p className="text-xs text-slate-700 font-sans">
-                  Configure real-time sound alerts, system banners, and email dispatch notices for incoming repair requests.
+                  Configure real-time sound alerts, system banners, and automated SMS mobile dispatch notices for incoming repair requests.
                 </p>
 
                 <div className="space-y-3 pt-2">
@@ -1376,21 +1474,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   </div>
 
-                  {/* Email Notifications Toggle */}
+                  {/* SMS Mobile Dispatch Toggle */}
                   <div className="flex items-center justify-between p-3 bg-white border border-[#E6DDD3] rounded-lg">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                        <Mail className="w-4 h-4" />
+                      <div className="w-8 h-8 rounded-lg bg-[#6B1420]/10 text-[#6B1420] flex items-center justify-center">
+                        <Smartphone className="w-4 h-4" />
                       </div>
                       <div>
-                        <span className="font-bold text-xs text-[#241012] block">Email Dispatch Copies</span>
-                        <span className="text-[11px] text-slate-700">Send email notifications when funding is released or job orders complete.</span>
+                        <span className="font-bold text-xs text-[#241012] block">SMS Mobile Dispatch &amp; Alerts</span>
+                        <span className="text-[11px] text-slate-700">Send automated SMS text messages to technicians when dispatched, and status updates to departments.</span>
                       </div>
                     </div>
                     <button
                       onClick={() => {
                         setEmailAlertsEnabled(!emailAlertsEnabled);
-                        showToast(emailAlertsEnabled ? "Email alerts disabled" : "Email alerts enabled");
+                        showToast(emailAlertsEnabled ? "SMS mobile alerts disabled" : "SMS mobile alerts enabled");
                       }}
                       className={`px-3 py-1.5 text-xs font-mono font-bold rounded-lg border transition-colors cursor-pointer ${emailAlertsEnabled
                         ? "bg-emerald-50 text-emerald-700 border-emerald-300"
@@ -1399,6 +1497,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     >
                       {emailAlertsEnabled ? "ENABLED" : "DISABLED"}
                     </button>
+                  </div>
+
+                  {/* Live Test SMS Delivery Tool */}
+                  <div className="p-3.5 bg-white border border-[#E6DDD3] rounded-lg space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Smartphone className="w-4 h-4 text-[#6B1420]" />
+                        <span className="font-bold text-xs text-[#241012]">Test SMS Dispatch Delivery</span>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                        Gateway: Ready
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 font-sans">
+                      Enter a mobile number to test sending an instant SMS notification.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="tel"
+                        placeholder="e.g. 09171234567"
+                        value={testSmsPhone}
+                        onChange={(e) => setTestSmsPhone(e.target.value)}
+                        className="flex-1 text-xs font-sans px-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSendTestSmsClick}
+                        disabled={testSmsBusy || !testSmsPhone.trim() || !onSendTestSms}
+                        className="px-3.5 py-2 bg-[#6B1420] text-white rounded-lg text-xs font-display font-medium hover:bg-[#520F18] transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                        {testSmsBusy ? "Dispatching..." : "Send Test SMS"}
+                      </button>
+                    </div>
+                    {testSmsResult && (
+                      <div className={`p-2 rounded-lg text-xs font-sans flex items-center gap-2 ${testSmsResult.ok ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-rose-50 text-rose-800 border border-rose-200"}`}>
+                        {testSmsResult.ok ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />}
+                        <span>{testSmsResult.message}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Toast Banners Toggle */}
@@ -1641,6 +1779,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="w-full text-sm px-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420] placeholder-slate-400"
                     />
                   </div>
+                  <div>
+                    <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">Mobile Phone (for SMS OTP)</label>
+                    <input
+                      type="tel"
+                      value={profilePhoneNumber}
+                      onChange={(e) => setProfilePhoneNumber(e.target.value)}
+                      placeholder="+63 912 345 6789 or 09123456789"
+                      className="w-full text-sm px-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420] placeholder-slate-400"
+                    />
+                  </div>
                 </div>
                 <button
                   onClick={handleSaveOwnProfile}
@@ -1657,7 +1805,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Change Password
                 </h4>
                 <p className="text-xs text-slate-700 font-sans">
-                  Works exactly like "Forgot Access Key" on the login screen: a 6-digit code is emailed to your account address, then you enter it here along with your new password.
+                  Works exactly like "Forgot Access Key" on the login screen: a 6-digit verification code is sent via SMS to your mobile phone number, then you enter it here along with your new password.
                 </p>
 
                 {pwError && (
@@ -1673,25 +1821,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 )}
 
-                {!currentUser?.email && (
+                {!currentUser?.phoneNumber && !currentUser?.email && (
                   <div className="flex items-center gap-2 bg-safety-amber/10 border border-safety-amber/30 text-safety-amber text-xs font-sans rounded-lg p-3">
                     <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>No email is on file for this account. Add one above and save your profile first, or contact your PPO administrator to reset your password.</span>
+                    <span>No mobile phone number is on file for this account. Add one above and save your profile first, or contact your PPO administrator.</span>
                   </div>
                 )}
 
                 {pwStep === 1 && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-sm text-[#2B1210] bg-white border border-[#E6DDD3] rounded-lg px-3 py-2.5">
-                      <Mail className="w-4 h-4 text-[#6B1420] shrink-0" />
-                      <span className="truncate">{currentUser?.email || "—"}</span>
+                      <Smartphone className="w-4 h-4 text-[#6B1420] shrink-0" />
+                      <span className="truncate">{currentUser?.phoneNumber || (currentUser?.username ? `Account: ${currentUser.username}` : "—")}</span>
                     </div>
                     <button
                       onClick={handleSendPwOtp}
-                      disabled={pwBusy || !onRequestPasswordOtp || !currentUser?.email}
+                      disabled={pwBusy || !onRequestPasswordOtp || (!currentUser?.phoneNumber && !currentUser?.username)}
                       className="px-4 py-2 bg-[#6B1420] text-white font-mono font-bold text-xs rounded-lg hover:bg-[#541019] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
                     >
-                      <Mail className="w-3.5 h-3.5" /> {pwBusy ? "Sending Code..." : "Send Verification Code"}
+                      <Smartphone className="w-3.5 h-3.5" /> {pwBusy ? "Sending SMS..." : "Send SMS Verification Code"}
                     </button>
                   </div>
                 )}

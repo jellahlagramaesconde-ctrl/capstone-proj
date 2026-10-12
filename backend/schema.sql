@@ -6,22 +6,27 @@ CREATE TABLE IF NOT EXISTS users (
                     CHECK (role IN ('Dept','Staff','PPO','President','Finance')),
     full_name       VARCHAR(150),
     email           VARCHAR(150),
+    phone_number    VARCHAR(25),
     department      VARCHAR(50),         
     created_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR(50);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(25);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(LOWER(username));
 CREATE INDEX IF NOT EXISTS idx_users_email    ON users(LOWER(email));
+CREATE INDEX IF NOT EXISTS idx_users_phone    ON users(phone_number);
 CREATE TABLE IF NOT EXISTS password_resets (
-    id          SERIAL PRIMARY KEY,
-    email       VARCHAR(150) NOT NULL,
-    otp_hash    TEXT         NOT NULL,
-    expires_at  TIMESTAMP    NOT NULL,
-    attempts    INT          NOT NULL DEFAULT 0,
-    used        BOOLEAN      NOT NULL DEFAULT FALSE,
-    created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+    id           SERIAL PRIMARY KEY,
+    email        VARCHAR(150),
+    phone_number VARCHAR(25),
+    otp_hash     TEXT         NOT NULL,
+    expires_at   TIMESTAMP    NOT NULL,
+    attempts     INT          NOT NULL DEFAULT 0,
+    used         BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(LOWER(email));
+CREATE INDEX IF NOT EXISTS idx_password_resets_phone ON password_resets(phone_number);
 CREATE TABLE IF NOT EXISTS app_settings (
     key         VARCHAR(100) PRIMARY KEY,
     value       TEXT NOT NULL,

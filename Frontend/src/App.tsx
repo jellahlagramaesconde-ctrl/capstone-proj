@@ -11,7 +11,7 @@ import { StaffDashboard } from "./components/StaffDashboard";
 import { ReportDashboard } from "./components/ReportDashboard";
 import { FinanceDashboard } from "./components/FinanceDashboard";
 import { SchoolHeadDashboard } from "./components/SchoolHeadDashboard";
-import { ShieldCheck, ArrowRight, ArrowLeft, Sparkles, AlertCircle, School, GraduationCap, Wrench, Lock, ClipboardList, Building, Eye, EyeOff, Shield, Mail, CheckCircle2, X, User } from "lucide-react";
+import { ShieldCheck, ArrowRight, ArrowLeft, Sparkles, AlertCircle, School, GraduationCap, Wrench, Lock, ClipboardList, Building, Eye, EyeOff, Shield, Mail, CheckCircle2, X, User, Smartphone, Phone } from "lucide-react";
 import { DEPARTMENT_OFFICES, DEPT_OFFICE_LABELS } from "./departments";
 
 // Admin-side desks (PPO, President, Finance) aren't in DEPT_OFFICE_LABELS —
@@ -286,7 +286,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: recoveryEmail }),
+        body: JSON.stringify({ identifier: recoveryEmail }),
       });
       const data = await res.json();
       setRecoveryBusy(false);
@@ -313,7 +313,7 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: recoveryEmail,
+          identifier: recoveryEmail,
           otp: recoveryOtp,
           newPassword: recoveryNewPassword,
         }),
@@ -730,7 +730,7 @@ export default function App() {
     }
   };
 
-  const handleCreateUser = async (userData: { username: string; password: string; role: string; fullName: string; email?: string; department?: string }) => {
+  const handleCreateUser = async (userData: { username: string; password: string; role: string; fullName: string; email?: string; phoneNumber?: string; department?: string }) => {
     try {
       const res = await authedFetch("/api/users", {
         method: "POST",
@@ -899,6 +899,7 @@ export default function App() {
     username?: string;
     role?: string;
     email?: string;
+    phoneNumber?: string;
     department?: string;
     password?: string;
   }) => {
@@ -941,32 +942,47 @@ export default function App() {
     }
   };
 
+  const handleSendTestSms = async (phoneNumber: string) => {
+    try {
+      const res = await authedFetch("/api/system/test-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        return { ok: true, mode: data.mode, phone: data.phone };
+      }
+      return { ok: false, error: data.error || "Failed to send test SMS." };
+    } catch (err: any) {
+      return { ok: false, error: err.message || "Failed to connect to server." };
+    }
+  };
+
   // Self-service password change from the Account Profile tab — reuses the
-  // exact same OTP-via-email flow as the login page's "Forgot Access Key"
-  // (POST /api/auth/forgot-password + POST /api/auth/reset-password), just
-  // invoked with the logged-in user's own account email instead of a typed
-  // one, so it's one password-reset code path for the whole app.
-  const requestPasswordResetOtp = async (email: string) => {
+  // exact same SMS OTP flow as the login page's "Forgot Access Key"
+  // (POST /api/auth/forgot-password + POST /api/auth/reset-password).
+  const requestPasswordResetOtp = async (identifier: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ identifier }),
       });
       const data = await res.json();
       if (res.ok) return { ok: true, message: data.message };
-      return { ok: false, error: data.error || "Could not send verification code." };
+      return { ok: false, error: data.error || "Could not send SMS verification code." };
     } catch (err: any) {
       return { ok: false, error: err.message || "Could not connect to server." };
     }
   };
 
-  const confirmPasswordResetWithOtp = async (email: string, otp: string, newPassword: string) => {
+  const confirmPasswordResetWithOtp = async (identifier: string, otp: string, newPassword: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, otp, newPassword }),
+        body: JSON.stringify({ identifier, otp, newPassword }),
       });
       const data = await res.json();
       if (res.ok) return { ok: true, message: data.message };
@@ -1831,8 +1847,8 @@ export default function App() {
                                 onClick={() => handleOpenForgotPassword(loginDeptUsername)}
                                 className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-600 hover:text-[#C41230] text-center w-full font-sans transition-colors cursor-pointer hover:underline"
                               >
-                                <Mail className="w-3.5 h-3.5 text-[#C41230]" />
-                                Forgot Access Key? Reset via Gmail OTP
+                                <Smartphone className="w-3.5 h-3.5 text-[#C41230]" />
+                                Forgot Access Key? Reset via SMS OTP
                               </button>
                             </>
                           )}
@@ -2286,6 +2302,7 @@ export default function App() {
             onConfirmPasswordReset={confirmPasswordResetWithOtp}
             slaDefaults={slaDefaults}
             onUpdateSlaDefaults={handleUpdateSlaDefaults}
+            onSendTestSms={handleSendTestSms}
           />
         </React.Fragment>
       )}
@@ -2298,13 +2315,13 @@ export default function App() {
             <div className="flex items-center justify-between pb-4 border-b border-[#E6DDD3]">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-lg bg-[#C41230]/10 text-[#C41230]">
-                  <Mail className="w-5 h-5" />
+                  <Smartphone className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="font-display font-bold text-xl text-[#241012]">
-                    Gmail Credential Recovery
+                    SMS Credential Recovery
                   </h3>
-                  <p className="text-xs text-slate-600">Account Self-Service Password Reset</p>
+                  <p className="text-xs text-slate-600">Account Self-Service Password Reset via SMS OTP</p>
                 </div>
               </div>
               <button
@@ -2333,23 +2350,23 @@ export default function App() {
               {recoveryStep === 1 && (
                 <form onSubmit={handleSendRecoveryOtp} className="space-y-4">
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Enter your registered department Gmail address or username below. A 6-digit verification code will be generated and dispatched.
+                    Enter your registered department username or mobile phone number below. A 6-digit SMS verification code will be sent to your phone.
                   </p>
 
                   <div>
                     <label className="block text-xs font-mono font-bold text-slate-600 uppercase mb-1">
-                      Department Gmail / Email Address
+                      Department Username or Mobile Number
                     </label>
                     <div className="relative">
                       <input
                         type="text"
                         required
-                        placeholder="e.g. academic.affairs@cosca.edu.ph or it.services"
+                        placeholder="e.g. academic.affairs or +63 912 345 6789"
                         value={recoveryEmail}
                         onChange={(e) => setRecoveryEmail(e.target.value)}
                         className="w-full text-sm font-sans pl-9 pr-3 py-2.5 rounded-lg border border-[#E6DDD3] bg-[#F5F1EC] text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#C41230]"
                       />
-                      <Mail className="w-4 h-4 text-slate-600 absolute left-3 top-3" />
+                      <Smartphone className="w-4 h-4 text-slate-600 absolute left-3 top-3" />
                     </div>
                   </div>
 
@@ -2366,7 +2383,7 @@ export default function App() {
                       disabled={recoveryBusy}
                       className="px-4 py-2 text-xs font-mono font-bold rounded bg-[#C41230] text-white hover:bg-[#9C0E24] disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                     >
-                      {recoveryBusy ? "Sending Code..." : "Send Reset Code"}
+                      {recoveryBusy ? "Sending Code..." : "Send SMS Code"}
                       {!recoveryBusy && <ArrowRight className="w-3.5 h-3.5" />}
                     </button>
                   </div>
@@ -2377,7 +2394,7 @@ export default function App() {
                 <form onSubmit={handleResetPasswordWithOtp} className="space-y-4">
                   <div>
                     <label className="block text-xs font-mono font-bold text-slate-600 uppercase mb-1">
-                      6-Digit Verification Code (OTP)
+                      6-Digit SMS Verification Code (OTP)
                     </label>
                     <input
                       type="text"
