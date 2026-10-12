@@ -53,7 +53,6 @@ interface AuthUser {
   username: string;
   role: string; // 'Dept' | 'Staff' | 'PPO' | 'President' | 'Finance'
   fullName: string;
-  email?: string;
   department?: string; // the office this account is actually registered under (Dept accounts)
 }
 
@@ -141,10 +140,10 @@ export default function App() {
   const [adminLoginError, setAdminLoginError] = useState<string | null>(null);
   const [adminAttemptsRemaining, setAdminAttemptsRemaining] = useState<number | null>(null);
 
-  // --- Gmail Password Recovery Modal States & Handlers ---
+  // --- SMS Password Recovery Modal States & Handlers ---
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
   const [recoveryStep, setRecoveryStep] = useState<1 | 2 | 3>(1);
-  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryIdentifier, setRecoveryIdentifier] = useState("");
   const [recoveryOtp, setRecoveryOtp] = useState("");
   const [recoveryNewPassword, setRecoveryNewPassword] = useState("");
   const [recoveryBusy, setRecoveryBusy] = useState(false);
@@ -266,9 +265,9 @@ export default function App() {
     }
   };
 
-  const handleOpenForgotPassword = (defaultEmailOrUser?: string) => {
+  const handleOpenForgotPassword = (defaultUser?: string) => {
     setRecoveryStep(1);
-    setRecoveryEmail(defaultEmailOrUser || "");
+    setRecoveryIdentifier(defaultUser || "");
     setRecoveryOtp("");
     setRecoveryNewPassword("");
     setRecoveryError(null);
@@ -286,7 +285,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier: recoveryEmail }),
+      body: JSON.stringify({ identifier: recoveryIdentifier }),
       });
       const data = await res.json();
       setRecoveryBusy(false);
@@ -313,7 +312,7 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          identifier: recoveryEmail,
+          identifier: recoveryIdentifier,
           otp: recoveryOtp,
           newPassword: recoveryNewPassword,
         }),
@@ -730,7 +729,7 @@ export default function App() {
     }
   };
 
-  const handleCreateUser = async (userData: { username: string; password: string; role: string; fullName: string; email?: string; phoneNumber?: string; department?: string }) => {
+  const handleCreateUser = async (userData: { username: string; password: string; role: string; fullName: string; phoneNumber?: string; department?: string }) => {
     try {
       const res = await authedFetch("/api/users", {
         method: "POST",
@@ -893,12 +892,11 @@ export default function App() {
   };
 
   // Lets PPO admins edit all fields of any user account (full name, username,
-  // role, department office, email, and optional password reset).
+  // role, department office, and optional password reset).
   const handleEditUser = async (id: number, userData: {
     fullName: string;
     username?: string;
     role?: string;
-    email?: string;
     phoneNumber?: string;
     department?: string;
     password?: string;
@@ -921,10 +919,10 @@ export default function App() {
   };
 
   // Lets any logged-in role (Dept, Staff, PPO, President, Finance) update
-  // their own display name and email from the new Account Profile tab —
+  // their own display name from the Account Profile tab —
   // separate from handleEditUser, which is the PPO-only path for editing
   // someone else's account.
-  const handleUpdateOwnProfile = async (data: { fullName: string; email?: string }) => {
+  const handleUpdateOwnProfile = async (data: { fullName: string; phoneNumber?: string }) => {
     try {
       const res = await authedFetch("/api/auth/me", {
         method: "PATCH",
@@ -2306,7 +2304,7 @@ export default function App() {
           />
         </React.Fragment>
       )}
-      {/* Gmail Password Recovery Modal */}
+      {/* SMS Password Recovery Modal */}
       {isForgotModalOpen && (
         <div className="fixed inset-0 bg-[#241012]/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-[#E6DDD3] rounded-2xl shadow-2xl max-w-md w-full p-6 relative overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -2362,8 +2360,8 @@ export default function App() {
                         type="text"
                         required
                         placeholder="e.g. academic.affairs or +63 912 345 6789"
-                        value={recoveryEmail}
-                        onChange={(e) => setRecoveryEmail(e.target.value)}
+                        value={recoveryIdentifier}
+                        onChange={(e) => setRecoveryIdentifier(e.target.value)}
                         className="w-full text-sm font-sans pl-9 pr-3 py-2.5 rounded-lg border border-[#E6DDD3] bg-[#F5F1EC] text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#C41230]"
                       />
                       <Smartphone className="w-4 h-4 text-slate-600 absolute left-3 top-3" />

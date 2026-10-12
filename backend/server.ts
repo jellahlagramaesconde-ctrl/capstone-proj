@@ -144,7 +144,7 @@ function requireRole(...allowedRoles: string[]) {
 app.post("/api/auth/login", authLimiter, async (req, res) => {
   const { username, password, portal, department, selectedRole } = req.body;
   if (!username || !password) {
-    return res.status(400).json({ error: "Username or Email and password are required." });
+    return res.status(400).json({ error: "Username and password are required." });
   }
 
   const lock = getLockStatus(username);
@@ -157,7 +157,7 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT * FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1)",
+      "SELECT * FROM users WHERE LOWER(username) = LOWER($1)",
       [username.trim()]
     );
     const user = result.rows[0];
@@ -166,7 +166,7 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
     if (!user || !passwordMatches) {
       const rec = recordFailedAttempt(username);
       return res.status(401).json({
-        error: "Invalid username/email or password.",
+        error: "Invalid username or password.",
         attemptsRemaining: Math.max(0, MAX_ATTEMPTS - rec.count),
       });
     }
@@ -225,7 +225,7 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, username: user.username, role: user.role, fullName: user.full_name, email: user.email, phoneNumber: user.phone_number, department: user.department },
+      user: { id: user.id, username: user.username, role: user.role, fullName: user.full_name, phoneNumber: user.phone_number, department: user.department },
     });
   } catch (err) {
     console.error("Login error:", err);
@@ -277,8 +277,8 @@ app.post("/api/auth/lookup-phone", authLimiter, async (req, res) => {
 
 // Endpoint: Request Password Reset Verification Code via SMS (OTP)
 app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
-  const { identifier, phoneNumber, phone, email } = req.body;
-  const target = (identifier || phoneNumber || phone || email || "").toString().trim();
+  const { identifier, phoneNumber, phone } = req.body;
+  const target = (identifier || phoneNumber || phone || "").toString().trim();
   if (!target) {
     return res.status(400).json({ error: "Please enter your registered mobile number or username." });
   }
@@ -286,10 +286,9 @@ app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
   try {
     const cleanPhone = normalizePhoneNumber(target);
     const result = await pool.query(
-      `SELECT id, username, email, phone_number, full_name FROM users
+      `SELECT id, username, phone_number, full_name FROM users
        WHERE (phone_number IS NOT NULL AND (phone_number = $1 OR phone_number = $2))
-          OR LOWER(username) = LOWER($2)
-          OR (email IS NOT NULL AND LOWER(email) = LOWER($2))`,
+          OR LOWER(username) = LOWER($2)`,
       [cleanPhone, target]
     );
 
@@ -325,9 +324,9 @@ app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
     await pool.query(
-      `INSERT INTO password_resets (phone_number, email, otp_hash, expires_at)
-       VALUES ($1, $2, $3, $4)`,
-      [recipientPhone, user.email, otpHash, expiresAt]
+      `INSERT INTO password_resets (phone_number, otp_hash, expires_at)
+       VALUES ($1, $2, $3)`,
+      [recipientPhone, otpHash, expiresAt]
     );
 
     try {
@@ -356,8 +355,8 @@ app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
 
 // Endpoint: Reset Password with SMS OTP Verification Code
 app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
-  const { identifier, phoneNumber, phone, email, otp, newPassword } = req.body;
-  const target = (phoneNumber || phone || identifier || email || "").toString().trim();
+  const { identifier, phoneNumber, phone, otp, newPassword } = req.body;
+  const target = (phoneNumber || phone || identifier || "").toString().trim();
   if (!target || !otp || !newPassword) {
     return res.status(400).json({ error: "Mobile number/username, verification code, and new password are required." });
   }
@@ -369,10 +368,9 @@ app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
 
   try {
     const userResult = await pool.query(
-      `SELECT id, username, email, phone_number, full_name FROM users
+      `SELECT id, username, phone_number, full_name FROM users
        WHERE (phone_number IS NOT NULL AND (phone_number = $1 OR phone_number = $2))
-          OR LOWER(username) = LOWER($2)
-          OR (email IS NOT NULL AND LOWER(email) = LOWER($2))`,
+          OR LOWER(username) = LOWER($2)`,
       [cleanPhone, target]
     );
 
@@ -385,10 +383,10 @@ app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
 
     const resetResult = await pool.query(
       `SELECT id, otp_hash, expires_at, attempts FROM password_resets
-       WHERE (phone_number = $1 OR phone_number = $2 OR (email IS NOT NULL AND LOWER(email) = LOWER($3)))
+       WHERE (phone_number = $1 OR phone_number = $2)
          AND used = FALSE
        ORDER BY created_at DESC LIMIT 1`,
-      [userPhone, cleanPhone, user.email || ""]
+      [userPhone, cleanPhone]
     );
 
     if (resetResult.rows.length === 0) {
@@ -439,7 +437,7 @@ app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
 app.get("/api/auth/me", authenticateToken, async (req: AuthedRequest, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, username, role, full_name as "fullName", email, phone_number as "phoneNumber", department FROM users WHERE id = $1`,
+      `SELECT id, username, role, full_name as "fullName", phone_number as "phoneNumber", department FROM users WHERE id = $1`,
       [req.user!.sub]
     );
     const user = result.rows[0];
@@ -452,20 +450,12 @@ app.get("/api/auth/me", authenticateToken, async (req: AuthedRequest, res) => {
 });
 
 // Self-service profile edit — any logged-in role can update their own
-// display name, email, and mobile phone number
+// display name and mobile phone number
 app.patch("/api/auth/me", authenticateToken, async (req: AuthedRequest, res) => {
   try {
-    const { fullName, email, phoneNumber } = req.body;
+    const { fullName, phoneNumber } = req.body;
     if (!fullName || !String(fullName).trim()) {
       return res.status(400).json({ error: "Full name is required." });
-    }
-
-    let cleanEmail: string | null = null;
-    if (email && String(email).trim()) {
-      cleanEmail = String(email).trim().toLowerCase();
-      if (!EMAIL_REGEX.test(cleanEmail)) {
-        return res.status(400).json({ error: "Invalid email format." });
-      }
     }
 
     let cleanPhone: string | null = null;
@@ -474,9 +464,9 @@ app.patch("/api/auth/me", authenticateToken, async (req: AuthedRequest, res) => 
     }
 
     const result = await pool.query(
-      `UPDATE users SET full_name = $1, email = $2, phone_number = COALESCE($3, phone_number) WHERE id = $4
-       RETURNING id, username, role, full_name as "fullName", email, phone_number as "phoneNumber", department`,
-      [String(fullName).trim(), cleanEmail, cleanPhone, req.user!.sub]
+      `UPDATE users SET full_name = $1, phone_number = COALESCE($2, phone_number) WHERE id = $3
+       RETURNING id, username, role, full_name as "fullName", phone_number as "phoneNumber", department`,
+      [String(fullName).trim(), cleanPhone, req.user!.sub]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Account no longer exists." });
@@ -501,11 +491,10 @@ app.patch("/api/auth/me", authenticateToken, async (req: AuthedRequest, res) => 
   }
 });
 
-// NOTE: Self-service password changes go through the same OTP-via-email
-// flow as the login page's "Forgot Access Key" (POST /api/auth/forgot-password
-// + POST /api/auth/reset-password above) rather than a separate
-// current-password-based endpoint, so there's only one password-reset code
-// path to keep secure and test.
+// NOTE: Self-service password changes go through the SMS OTP flow
+// (POST /api/auth/forgot-password + POST /api/auth/reset-password above)
+// rather than a separate current-password-based endpoint, so there is only
+// one password-reset code path to keep secure and test.
 
 
 
@@ -555,7 +544,6 @@ app.post("/api/system/test-sms", authenticateToken, async (req: AuthedRequest, r
 // USER MANAGEMENT ENDPOINTS (PPO / Admin only)
 // ---------------------------------------------------------------
 const VALID_ROLES = ["Dept", "Staff", "PPO", "President", "Finance"];
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9._-]+$/;
 
 // Offices used to be a hardcoded array/map here (VALID_DEPARTMENTS /
@@ -588,7 +576,7 @@ function getDeptLabelByValue(value: string): string | undefined {
 app.get("/api/users", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, username, role, full_name as \"fullName\", email, phone_number as \"phoneNumber\", department, created_at as \"createdAt\" FROM users ORDER BY created_at DESC"
+      "SELECT id, username, role, full_name as \"fullName\", phone_number as \"phoneNumber\", department, created_at as \"createdAt\" FROM users ORDER BY created_at DESC"
     );
     res.json({ users: result.rows });
   } catch (err: any) {
@@ -599,7 +587,7 @@ app.get("/api/users", authenticateToken, requireRole("PPO"), async (req: AuthedR
 
 app.post("/api/users", authenticateToken, requireRole("PPO"), async (req: AuthedRequest, res) => {
   try {
-    const { username, password, role, fullName, email, phoneNumber, department } = req.body;
+    const { username, password, role, fullName, phoneNumber, department } = req.body;
 
     if (!username || !password || !role || !fullName) {
       return res.status(400).json({ error: "Username, password, role, and full name are required." });
@@ -616,14 +604,6 @@ app.post("/api/users", authenticateToken, requireRole("PPO"), async (req: Authed
 
     if (String(password).length < 8) {
       return res.status(400).json({ error: "Password must be at least 8 characters long for security compliance." });
-    }
-
-    let cleanEmail: string | null = null;
-    if (email && String(email).trim()) {
-      cleanEmail = String(email).trim().toLowerCase();
-      if (!EMAIL_REGEX.test(cleanEmail)) {
-        return res.status(400).json({ error: "Invalid email format." });
-      }
     }
 
     let cleanPhone: string | null = null;
@@ -644,17 +624,16 @@ app.post("/api/users", authenticateToken, requireRole("PPO"), async (req: Authed
     const passwordHash = await bcrypt.hash(password, 12);
 
     const result = await pool.query(
-      `INSERT INTO users (username, password_hash, role, full_name, email, phone_number, department)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO users (username, password_hash, role, full_name, phone_number, department)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (username) DO UPDATE
          SET password_hash = EXCLUDED.password_hash,
              role = EXCLUDED.role,
              full_name = EXCLUDED.full_name,
-             email = EXCLUDED.email,
              phone_number = EXCLUDED.phone_number,
              department = EXCLUDED.department
-       RETURNING id, username, role, full_name as "fullName", email, phone_number as "phoneNumber", department, created_at as "createdAt"`,
-      [cleanUsername, passwordHash, role, String(fullName).trim(), cleanEmail, cleanPhone, cleanDepartment]
+       RETURNING id, username, role, full_name as "fullName", phone_number as "phoneNumber", department, created_at as "createdAt"`,
+      [cleanUsername, passwordHash, role, String(fullName).trim(), cleanPhone, cleanDepartment]
     );
 
     const createdUser = result.rows[0];
@@ -687,7 +666,7 @@ app.patch("/api/users/:id", authenticateToken, requireRole("PPO", "Admin"), asyn
       return res.status(400).json({ error: "Invalid user ID." });
     }
 
-    const { fullName, username, role, email, phoneNumber, department, password } = req.body;
+    const { fullName, username, role, phoneNumber, department, password } = req.body;
     if (!fullName || !String(fullName).trim()) {
       return res.status(400).json({ error: "Full name is required." });
     }
@@ -695,7 +674,7 @@ app.patch("/api/users/:id", authenticateToken, requireRole("PPO", "Admin"), asyn
     const cleanFullName = String(fullName).trim();
 
     const check = await pool.query(
-      "SELECT id, username, role, department, full_name as \"fullName\", email, phone_number as \"phoneNumber\" FROM users WHERE id = $1",
+      "SELECT id, username, role, department, full_name as \"fullName\", phone_number as \"phoneNumber\" FROM users WHERE id = $1",
       [userId]
     );
     if (check.rows.length === 0) {
@@ -726,22 +705,6 @@ app.patch("/api/users/:id", authenticateToken, requireRole("PPO", "Admin"), asyn
         return res.status(400).json({ error: `Invalid role "${role}". Allowed roles: ${VALID_ROLES.join(", ")}.` });
       }
       cleanRole = role;
-    }
-
-    // Validate email
-    let cleanEmail: string | null = null;
-    if (email !== undefined) {
-      if (email && String(email).trim()) {
-        const eCandidate = String(email).trim().toLowerCase();
-        if (!EMAIL_REGEX.test(eCandidate)) {
-          return res.status(400).json({ error: "Invalid email format." });
-        }
-        cleanEmail = eCandidate;
-      } else {
-        cleanEmail = null;
-      }
-    } else {
-      cleanEmail = targetUser.email;
     }
 
     // Validate phone
@@ -781,18 +744,18 @@ app.patch("/api/users/:id", authenticateToken, requireRole("PPO", "Admin"), asyn
     if (passwordHashToSet) {
       result = await pool.query(
         `UPDATE users
-         SET full_name = $1, username = $2, role = $3, email = $4, phone_number = $5, department = $6, password_hash = $7
-         WHERE id = $8
-         RETURNING id, username, role, full_name as "fullName", email, phone_number as "phoneNumber", department, created_at as "createdAt"`,
-        [cleanFullName, cleanUsername, cleanRole, cleanEmail, cleanPhone, cleanDepartment, passwordHashToSet, userId]
+         SET full_name = $1, username = $2, role = $3, phone_number = $4, department = $5, password_hash = $6
+         WHERE id = $7
+         RETURNING id, username, role, full_name as "fullName", phone_number as "phoneNumber", department, created_at as "createdAt"`,
+        [cleanFullName, cleanUsername, cleanRole, cleanPhone, cleanDepartment, passwordHashToSet, userId]
       );
     } else {
       result = await pool.query(
         `UPDATE users
-         SET full_name = $1, username = $2, role = $3, email = $4, phone_number = $5, department = $6
-         WHERE id = $7
-         RETURNING id, username, role, full_name as "fullName", email, phone_number as "phoneNumber", department, created_at as "createdAt"`,
-        [cleanFullName, cleanUsername, cleanRole, cleanEmail, cleanPhone, cleanDepartment, userId]
+         SET full_name = $1, username = $2, role = $3, phone_number = $4, department = $5
+         WHERE id = $6
+         RETURNING id, username, role, full_name as "fullName", phone_number as "phoneNumber", department, created_at as "createdAt"`,
+        [cleanFullName, cleanUsername, cleanRole, cleanPhone, cleanDepartment, userId]
       );
     }
 

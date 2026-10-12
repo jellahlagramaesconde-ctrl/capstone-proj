@@ -5,19 +5,19 @@ CREATE TABLE IF NOT EXISTS users (
     role            VARCHAR(20)  NOT NULL
                     CHECK (role IN ('Dept','Staff','PPO','President','Finance')),
     full_name       VARCHAR(150),
-    email           VARCHAR(150),
     phone_number    VARCHAR(25),
     department      VARCHAR(50),         
     created_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR(50);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(25);
+-- Drop legacy email column if it still exists on older databases
+ALTER TABLE users DROP COLUMN IF EXISTS email;
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(LOWER(username));
-CREATE INDEX IF NOT EXISTS idx_users_email    ON users(LOWER(email));
+DROP INDEX IF EXISTS idx_users_email;
 CREATE INDEX IF NOT EXISTS idx_users_phone    ON users(phone_number);
 CREATE TABLE IF NOT EXISTS password_resets (
     id           SERIAL PRIMARY KEY,
-    email        VARCHAR(150),
     phone_number VARCHAR(25),
     otp_hash     TEXT         NOT NULL,
     expires_at   TIMESTAMP    NOT NULL,
@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS password_resets (
     used         BOOLEAN      NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(LOWER(email));
+-- Drop legacy email column from password_resets if it exists
+ALTER TABLE password_resets DROP COLUMN IF EXISTS email;
+DROP INDEX IF EXISTS idx_password_resets_email;
 CREATE INDEX IF NOT EXISTS idx_password_resets_phone ON password_resets(phone_number);
 CREATE TABLE IF NOT EXISTS app_settings (
     key         VARCHAR(100) PRIMARY KEY,

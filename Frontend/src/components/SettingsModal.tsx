@@ -50,7 +50,7 @@ interface SettingsModalProps {
     password: string;
     role: string;
     fullName: string;
-    email?: string;
+    phoneNumber?: string;
     department?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   onEditUser: (
@@ -59,7 +59,7 @@ interface SettingsModalProps {
       fullName: string;
       username?: string;
       role?: string;
-      email?: string;
+      phoneNumber?: string;
       department?: string;
       password?: string;
     }
@@ -98,8 +98,8 @@ interface SettingsModalProps {
   // Removes a worker row that has no linked login account (leftover/mock data)
   onDeleteStaff?: (staffId: number) => Promise<{ ok: boolean; error?: string }>;
   // Account Profile tab — lets the logged-in user edit their own info
-  currentUser?: { id?: number; username: string; role: string; fullName: string; email?: string; phoneNumber?: string; department?: string } | null;
-  onUpdateOwnProfile?: (data: { fullName: string; email?: string; phoneNumber?: string }) => Promise<{ ok: boolean; error?: string }>;
+  currentUser?: { id?: number; username: string; role: string; fullName: string; phoneNumber?: string; department?: string } | null;
+  onUpdateOwnProfile?: (data: { fullName: string; phoneNumber?: string }) => Promise<{ ok: boolean; error?: string }>;
   // SMS OTP flow for password reset
   onRequestPasswordOtp?: (identifier: string) => Promise<{ ok: boolean; message?: string; error?: string }>;
   onConfirmPasswordReset?: (identifier: string, otp: string, newPassword: string) => Promise<{ ok: boolean; message?: string; error?: string }>;
@@ -181,9 +181,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<TabType>(() => (canManageAccounts ? "accounts" : "profile"));
 
-  // Account Profile — self-service name/email/phone edit + password change
+  // Account Profile — self-service name/phone edit + password change
   const [profileFullName, setProfileFullName] = useState(currentUser?.fullName || "");
-  const [profileEmail, setProfileEmail] = useState(currentUser?.email || "");
   const [profilePhoneNumber, setProfilePhoneNumber] = useState(currentUser?.phoneNumber || "");
   const [profileSaveBusy, setProfileSaveBusy] = useState(false);
 
@@ -227,16 +226,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   useEffect(() => {
     setProfileFullName(currentUser?.fullName || "");
-    setProfileEmail(currentUser?.email || "");
     setProfilePhoneNumber(currentUser?.phoneNumber || "");
-  }, [currentUser?.fullName, currentUser?.email, currentUser?.phoneNumber]);
+  }, [currentUser?.fullName, currentUser?.phoneNumber]);
 
   const handleSaveOwnProfile = async () => {
     if (!onUpdateOwnProfile || !profileFullName.trim()) return;
     setProfileSaveBusy(true);
     const res = await onUpdateOwnProfile({
       fullName: profileFullName.trim(),
-      email: profileEmail.trim() || undefined,
       phoneNumber: profilePhoneNumber.trim() || undefined,
     });
     setProfileSaveBusy(false);
@@ -253,7 +250,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleSendPwOtp = async () => {
-    const target = currentUser?.phoneNumber || currentUser?.username || currentUser?.email;
+    const target = currentUser?.phoneNumber || currentUser?.username;
     if (!onRequestPasswordOtp || !target) return;
     setPwError(null);
     setPwMsg(null);
@@ -269,7 +266,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleConfirmPwReset = async () => {
-    const target = currentUser?.phoneNumber || currentUser?.username || currentUser?.email;
+    const target = currentUser?.phoneNumber || currentUser?.username;
     if (!onConfirmPasswordReset || !target) return;
     setPwError(null);
     setPwMsg(null);
@@ -296,8 +293,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [emergencySoundAlert, setEmergencySoundAlert] = useState<boolean>(() => {
     return localStorage.getItem("jors_emergency_sound") !== "false";
   });
-  const [emailAlertsEnabled, setEmailAlertsEnabled] = useState<boolean>(() => {
-    return localStorage.getItem("jors_email_alerts") !== "false";
+  const [smsAlertsEnabled, setSmsAlertsEnabled] = useState<boolean>(() => {
+    return localStorage.getItem("jors_sms_alerts") !== "false";
   });
   const [toastBannersEnabled, setToastBannersEnabled] = useState<boolean>(() => {
     return localStorage.getItem("jors_toast_banners") !== "false";
@@ -458,7 +455,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Form State
   const [formFullName, setFormFullName] = useState("");
   const [formUsername, setFormUsername] = useState("");
-  const [formEmail, setFormEmail] = useState("");
   const [formPhoneNumber, setFormPhoneNumber] = useState("");
   const [formRole, setFormRole] = useState("Dept");
   const [formDepartment, setFormDepartment] = useState(DEPARTMENT_OFFICES[0].value);
@@ -478,7 +474,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [editUsername, setEditUsername] = useState("");
   const [editRole, setEditRole] = useState("Dept");
   const [editDepartment, setEditDepartment] = useState("");
-  const [editEmail, setEditEmail] = useState("");
   const [editPhoneNumber, setEditPhoneNumber] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [showEditPassword, setShowEditPassword] = useState(false);
@@ -490,8 +485,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [emergencySoundAlert]);
 
   useEffect(() => {
-    localStorage.setItem("jors_email_alerts", String(emailAlertsEnabled));
-  }, [emailAlertsEnabled]);
+    localStorage.setItem("jors_sms_alerts", String(smsAlertsEnabled));
+  }, [smsAlertsEnabled]);
 
   useEffect(() => {
     localStorage.setItem("jors_toast_banners", String(toastBannersEnabled));
@@ -519,8 +514,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       u.username.toLowerCase().includes(q) ||
       u.fullName.toLowerCase().includes(q) ||
       u.role.toLowerCase().includes(q) ||
-      deptLabel.toLowerCase().includes(q) ||
-      (u.email && u.email.toLowerCase().includes(q))
+      deptLabel.toLowerCase().includes(q)
     );
   });
 
@@ -573,7 +567,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const res = await onCreateUser({
       fullName: formFullName.trim(),
       username: formUsername.trim().toLowerCase(),
-      email: formEmail.trim() || undefined,
       phoneNumber: formPhoneNumber.trim() || undefined,
       role: formRole,
       password: formPassword,
@@ -582,10 +575,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setIsSubmitting(false);
 
     if (res.ok) {
-      setFormSuccess(`User account "${formUsername}" created successfully!`);
       setFormFullName("");
       setFormUsername("");
-      setFormEmail("");
       setFormPhoneNumber("");
       setFormPassword("");
       setFormDepartment(DEPARTMENT_OFFICES[0].value);
@@ -614,7 +605,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setEditUsername(user.username || "");
     setEditRole(user.role || "Dept");
     setEditDepartment(user.department || DEPARTMENT_OFFICES[0].value);
-    setEditEmail(user.email || "");
     setEditPhoneNumber(user.phoneNumber || "");
     setEditPassword("");
     setShowEditPassword(false);
@@ -627,7 +617,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setEditUsername("");
     setEditRole("Dept");
     setEditDepartment("");
-    setEditEmail("");
     setEditPhoneNumber("");
     setEditPassword("");
     setShowEditPassword(false);
@@ -677,7 +666,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       username: cleanUsername,
       role: editRole,
       department: editRole === "Dept" ? editDepartment : (editDepartment || undefined),
-      email: editEmail.trim() || undefined,
       phoneNumber: editPhoneNumber.trim() || undefined,
       password: editPassword.trim() || undefined,
     });
@@ -937,19 +925,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     <div>
                       <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
-                        Email Address (Optional)
-                      </label>
-                      <input
-                        type="email"
-                        placeholder="e.g. maria@cosca.edu.ph"
-                        value={formEmail}
-                        onChange={(e) => setFormEmail(e.target.value)}
-                        className="w-full text-xs font-sans px-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
                         Mobile Phone (for SMS Alerts &amp; OTP)
                       </label>
                       <div className="relative">
@@ -1080,7 +1055,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <Search className="w-4 h-4 text-slate-700" />
                 <input
                   type="text"
-                  placeholder="Search user accounts by name, username, email, or role..."
+                placeholder="Search user accounts by name, username, or role..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="bg-transparent text-xs font-sans text-[#2B1210] placeholder-slate-500 focus:outline-none flex-1"
@@ -1101,7 +1076,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <th className="py-3 px-4">User</th>
                         <th className="py-3 px-4">Role / Access</th>
                         <th className="py-3 px-4">Department</th>
-                        <th className="py-3 px-4">Contact (SMS &amp; Email)</th>
+                        <th className="py-3 px-4">Contact (SMS)</th>
                         <th className="py-3 px-4">Created Date</th>
                         <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
@@ -1155,11 +1130,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     <span className="text-amber-700 text-[11px] font-sans flex items-center gap-1">
                                       <Smartphone className="w-3 h-3 shrink-0" /> No mobile phone
                                     </span>
-                                  )}
-                                  {u.email && (
-                                    <div className="text-[11px] text-slate-600 truncate max-w-[180px]">
-                                      {u.email}
-                                    </div>
                                   )}
                                 </div>
                               </td>
@@ -1295,23 +1265,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <option value="President">School Head / President (Administrative Endorsement)</option>
                             <option value="Finance">Finance Department Head (Budget Approval &amp; Release)</option>
                           </select>
-                        </div>
-
-                        {/* Email Address */}
-                        <div>
-                          <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">
-                            Registered Gmail / Email (Optional)
-                          </label>
-                          <div className="relative">
-                            <input
-                              type="email"
-                              value={editEmail}
-                              onChange={(e) => setEditEmail(e.target.value)}
-                              placeholder="e.g. user@cosca.edu.ph"
-                              className="w-full text-xs font-sans pl-8 pr-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420]"
-                            />
-                            <Mail className="w-3.5 h-3.5 text-slate-600 absolute left-2.5 top-2.5" />
-                          </div>
                         </div>
 
                         {/* Mobile Phone Number */}
@@ -1487,15 +1440,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <button
                       onClick={() => {
-                        setEmailAlertsEnabled(!emailAlertsEnabled);
-                        showToast(emailAlertsEnabled ? "SMS mobile alerts disabled" : "SMS mobile alerts enabled");
+                        setSmsAlertsEnabled(!smsAlertsEnabled);
+                        showToast(smsAlertsEnabled ? "SMS mobile alerts disabled" : "SMS mobile alerts enabled");
                       }}
-                      className={`px-3 py-1.5 text-xs font-mono font-bold rounded-lg border transition-colors cursor-pointer ${emailAlertsEnabled
+                      className={`px-3 py-1.5 text-xs font-mono font-bold rounded-lg border transition-colors cursor-pointer ${smsAlertsEnabled
                         ? "bg-emerald-50 text-emerald-700 border-emerald-300"
                         : "bg-gray-100 text-gray-600 border-gray-300"
                         }`}
                     >
-                      {emailAlertsEnabled ? "ENABLED" : "DISABLED"}
+                      {smsAlertsEnabled ? "ENABLED" : "DISABLED"}
                     </button>
                   </div>
 
@@ -1770,16 +1723,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">Email</label>
-                    <input
-                      type="email"
-                      value={profileEmail}
-                      onChange={(e) => setProfileEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      className="w-full text-sm px-3 py-2 rounded-lg border border-[#E6DDD3] bg-white text-[#2B1210] focus:outline-none focus:ring-1 focus:ring-[#6B1420] placeholder-slate-400"
-                    />
-                  </div>
-                  <div>
                     <label className="block text-xs font-mono font-bold text-slate-700 uppercase mb-1">Mobile Phone (for SMS OTP)</label>
                     <input
                       type="tel"
@@ -1821,7 +1764,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 )}
 
-                {!currentUser?.phoneNumber && !currentUser?.email && (
+                {!currentUser?.phoneNumber && (
                   <div className="flex items-center gap-2 bg-safety-amber/10 border border-safety-amber/30 text-safety-amber text-xs font-sans rounded-lg p-3">
                     <AlertCircle className="w-4 h-4 shrink-0" />
                     <span>No mobile phone number is on file for this account. Add one above and save your profile first, or contact your PPO administrator.</span>
