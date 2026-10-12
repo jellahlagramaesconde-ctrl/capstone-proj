@@ -9,7 +9,16 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
 import { pool, testConnection, mapJobOrderRow, mapStaffRow, mapLogRow, mapNotificationRow, mapBudgetItemRow } from "./db";
-import { sendOtpSms, maskPhoneNumber, normalizePhoneNumber, sendTaskDispatchSms, sendGenericNotificationSms } from "./sendOtpSms";
+import {
+  sendOtpSms,
+  maskPhoneNumber,
+  normalizePhoneNumber,
+  sendTaskDispatchSms,
+  sendGenericNotificationSms,
+  sendEmergencyAlertSms,
+  sendTicketRequestNoticeSms,
+  sendSmsMessage,
+} from "./sendOtpSms";
 import rateLimit from "express-rate-limit";
 
 dotenv.config();
@@ -512,10 +521,6 @@ app.get("/api/system/sms-status", async (req, res) => {
   const provider = (process.env.SMS_PROVIDER || "console").toLowerCase();
   const configured = provider === "semaphore"
     ? Boolean(process.env.SEMAPHORE_API_KEY)
-    : provider === "twilio"
-    ? Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER)
-    : provider === "textbee"
-    ? Boolean(process.env.TEXTBEE_API_KEY)
     : true;
   res.json({ provider, configured });
 });
@@ -1417,15 +1422,99 @@ async function matchStaffForJobType(jobType: string): Promise<{ assignedStaff: s
 // has no email on file — any of which just means the dispatch email is
 // Look up a technician's mobile phone number by their staff name.
 async function getStaffPhoneByName(staffName: string): Promise<string | null> {
-  if (!staffName || staffName === "Outsource") return null;
+  if (!staffName || staffName === "Outsource" || staffName === "Unassigned") return null;
   const result = await pool.query(
     `SELECT u.phone_number FROM staff s
      JOIN users u ON u.id = s.user_id
-     WHERE s.name = $1`,
+     WHERE s.name = $1 AND u.phone_number IS NOT NULL AND u.phone_number <> ''`,
     [staffName]
   );
   const phone = result.rows[0]?.phone_number;
-  return phone ? String(phone) : null;
+  if (phone) return String(phone);
+
+  // Fallback: match directly in users table by full_name or username for staff accounts
+  const userFallback = await pool.query(
+    `SELECT phone_number FROM users
+     WHERE role = 'Staff'
+       AND (LOWER(TRIM(full_name)) = LOWER(TRIM($1)) OR LOWER(TRIM(username)) = LOWER(TRIM($1)))
+       AND phone_number IS NOT NULL AND phone_number <> ''`,
+    [staffName]
+  );
+  return userFallback.rows[0]?.phone_number ? String(userFallback.rows[0].phone_number) : null;
+}
+
+// Returns mobile phone numbers for all active maintenance staff accounts.
+async function getAllStaffPhones(): Promise<{ name: string; phone: string }[]> {
+  const result = await pool.query(
+    `SELECT DISTINCT COALESCE(s.name, u.full_name, u.username) AS name, u.phone_number
+     FROM users u
+     LEFT JOIN staff s ON s.user_id = u.id
+     WHERE u.role = 'Staff' AND u.phone_number IS NOT NULL AND u.phone_number <> ''`
+  );
+  return result.rows.map((r) => ({ name: String(r.name), phone: String(r.phone_number) }));
+}
+
+// Dispatches an urgent SMS alert for emergency job orders to assigned staff (or all staff if unassigned)
+async function notifyStaffOfEmergencyRequest(ticket: ReturnType<typeof mapJobOrderRow>) {
+  try {
+    const teams = await getTeamsForJobOrders([ticket.id]);
+    const team = teams.get(ticket.id) || [];
+    const names = team.length > 0 ? team.map((m) => m.name) : (ticket.assignedStaff && ticket.assignedStaff !== "Outsource" && ticket.assignedStaff !== "Unassigned" ? [ticket.assignedStaff] : []);
+
+    if (names.length > 0) {
+      for (const staffName of names) {
+        try {
+          const phone = await getStaffPhoneByName(staffName);
+          if (!phone) {
+            console.log(`[EMERGENCY SMS] Staff member ${staffName} has no phone number on file.`);
+            continue;
+          }
+          await sendEmergencyAlertSms(phone, staffName, ticket.id, ticket.office, ticket.jobType, ticket.description, "STAFF");
+          console.log(`[EMERGENCY SMS] Sent to ${phone} for ${ticket.id} (${staffName})`);
+        } catch (err) {
+          console.error(`[EMERGENCY SMS] Failed to SMS staff ${staffName} for ${ticket.id}:`, err);
+        }
+      }
+    } else {
+      // Broadcast to all maintenance staff on duty if unassigned or Outsource
+      const allStaff = await getAllStaffPhones();
+      for (const st of allStaff) {
+        try {
+          await sendEmergencyAlertSms(st.phone, st.name, ticket.id, ticket.office, ticket.jobType, ticket.description, "STAFF");
+          console.log(`[EMERGENCY BROADCAST SMS] Sent to ${st.phone} (${st.name}) for ${ticket.id}`);
+        } catch (err) {
+          console.error(`[EMERGENCY BROADCAST SMS] Failed to SMS staff ${st.name} for ${ticket.id}:`, err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[EMERGENCY SMS] Error notifying staff of emergency for ${ticket.id}:`, err);
+  }
+}
+
+// Dispatches a standard SMS notice when a ticket request is assigned to maintenance staff
+async function notifyStaffOfAssignedRequest(ticket: ReturnType<typeof mapJobOrderRow>) {
+  try {
+    const teams = await getTeamsForJobOrders([ticket.id]);
+    const team = teams.get(ticket.id) || [];
+    const names = team.length > 0 ? team.map((m) => m.name) : (ticket.assignedStaff && ticket.assignedStaff !== "Outsource" && ticket.assignedStaff !== "Unassigned" ? [ticket.assignedStaff] : []);
+
+    for (const staffName of names) {
+      try {
+        const phone = await getStaffPhoneByName(staffName);
+        if (!phone) {
+          console.log(`[ASSIGNED SMS] Staff member ${staffName} has no phone number on file.`);
+          continue;
+        }
+        await sendTicketRequestNoticeSms(phone, staffName, ticket.id, ticket.office, ticket.jobType, ticket.description, "STAFF");
+        console.log(`[ASSIGNED SMS] Sent to ${phone} for ${ticket.id} (${staffName})`);
+      } catch (err) {
+        console.error(`[ASSIGNED SMS] Failed to SMS staff ${staffName} for ${ticket.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error(`[ASSIGNED SMS] Error notifying staff of ticket assignment for ${ticket.id}:`, err);
+  }
 }
 
 // Best-effort dispatch SMS — sends SMS notification directly to technicians' mobile phones
@@ -2170,16 +2259,32 @@ app.post("/api/job-orders", authenticateToken, requireRole("Dept", "PPO", "Presi
       ]);
     }
 
-    const emergencyTag = newTicket.isEmergency ? "🚨 EMERGENCY REQUEST — " : "";
-    const newSubmissionMsg = `${emergencyTag}New job order ${newTicket.id} submitted by ${newTicket.office} — awaiting PPO review.`;
+    const isEmg = Boolean(newTicket.isEmergency) || newTicket.severity === "Emergency";
+    const shortDesc = newTicket.description.length > 70 ? newTicket.description.slice(0, 67) + "..." : newTicket.description;
+    const emergencyTag = isEmg ? "🚨 EMERGENCY REQUEST — " : "";
+    const newSubmissionMsg = isEmg
+      ? `🚨 EMERGENCY REQUEST — Urgent ticket ${newTicket.id} submitted by ${newTicket.office} (${newTicket.jobType}): "${shortDesc}". Immediate action required!`
+      : `New job order ${newTicket.id} submitted by ${newTicket.office} (${newTicket.jobType}): "${shortDesc}" — awaiting PPO review.`;
+
     await pool.query("INSERT INTO notifications (id, message, role, ticket_id) VALUES ($1, $2, 'PPO', $3)", [
       `n_${Date.now()}_ppo_new`,
       newSubmissionMsg,
       newTicket.id,
     ]);
+
+    // Dispatch SMS to Admin (PPO)
     void notifyRoleByEmail("PPO", `${emergencyTag}New Job Order Submitted — ${newTicket.id}`, newSubmissionMsg, newTicket.id);
 
     const [enrichedTicket] = await attachTeams([newTicket]);
+
+    // Dispatch SMS to Maintenance Staff:
+    // If Emergency: immediate urgent alert to assigned staff or all on-duty technicians
+    // If Regular: notification to assigned technician
+    if (isEmg) {
+      void notifyStaffOfEmergencyRequest(enrichedTicket);
+    } else if (enrichedTicket.assignedStaff && enrichedTicket.assignedStaff !== "Outsource" && enrichedTicket.assignedStaff !== "Unassigned") {
+      void notifyStaffOfAssignedRequest(enrichedTicket);
+    }
     res.status(201).json(enrichedTicket);
   } catch (error: any) {
     console.error(error);
@@ -2457,6 +2562,12 @@ app.post("/api/job-orders/override", authenticateToken, requireRole("PPO"), asyn
     void notifyRoleByEmail("PPO", `Job Order Override — ${id}`, logMsg, id);
 
     const [enrichedTicket] = await attachPhotos(await attachTeams([mapJobOrderRow(updateResult.rows[0])]));
+
+    // Notify newly assigned maintenance staff via SMS if staff assignment changed
+    if (newStaff && newStaff !== "Outsource" && newStaff !== ticket.assigned_staff) {
+      void notifyStaffOfAssignedRequest(enrichedTicket);
+    }
+
     res.json(enrichedTicket);
   } catch (err: any) {
     console.error(err);

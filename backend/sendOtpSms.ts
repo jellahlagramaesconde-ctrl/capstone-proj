@@ -52,16 +52,19 @@ export async function sendSmsMessage(toPhone: string, message: string, tag: stri
 
   // If Semaphore SMS is configured and enabled
   if (smsProvider === "semaphore" && semaphoreApiKey) {
-    const senderName = process.env.SEMAPHORE_SENDER_NAME || "SEMAPHORE";
+    const semPhone = normalized.startsWith("+") ? normalized.slice(1) : normalized;
+    const payload: Record<string, any> = {
+      apikey: semaphoreApiKey,
+      number: semPhone,
+      message,
+    };
+    if (process.env.SEMAPHORE_SENDER_NAME && process.env.SEMAPHORE_SENDER_NAME.trim()) {
+      payload.sendername = process.env.SEMAPHORE_SENDER_NAME.trim();
+    }
     const res = await fetch("https://api.semaphore.co/api/v4/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        apikey: semaphoreApiKey,
-        number: normalized,
-        message,
-        sendername: senderName,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -71,67 +74,7 @@ export async function sendSmsMessage(toPhone: string, message: string, tag: stri
     return { success: true, mode: "semaphore" };
   }
 
-  // If Twilio SMS is configured and enabled
-  const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-  const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-  const twilioFrom = process.env.TWILIO_PHONE_NUMBER;
-
-  if (smsProvider === "twilio" && twilioSid && twilioToken && twilioFrom) {
-    const authHeader = "Basic " + Buffer.from(`${twilioSid}:${twilioToken}`).toString("base64");
-    const formData = new URLSearchParams();
-    formData.append("To", normalized);
-    formData.append("From", twilioFrom);
-    formData.append("Body", message);
-
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
-      method: "POST",
-      headers: {
-        Authorization: authHeader,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: formData.toString(),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`Twilio SMS dispatch failed (${res.status}): ${errText}`);
-    }
-    return { success: true, mode: "twilio" };
-  }
-
-  // If TextBee SMS is configured and enabled (Free Android Gateway)
-  const textbeeApiKey = process.env.TEXTBEE_API_KEY;
-  const textbeeDeviceId = process.env.TEXTBEE_DEVICE_ID;
-
-  if (smsProvider === "textbee" && textbeeApiKey) {
-    const payload: { recipients: string[]; message: string; deviceId?: string } = {
-      recipients: [normalized],
-      message,
-    };
-    if (textbeeDeviceId) {
-      payload.deviceId = textbeeDeviceId;
-    }
-
-    const res = await fetch("https://api.textbee.dev/api/v1/gateway/send-sms", {
-      method: "POST",
-      headers: {
-        "x-api-key": textbeeApiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`TextBee SMS dispatch failed (${res.status}): ${errText}`);
-    }
-    const resData = await res.json().catch(() => null);
-    if (resData) {
-      console.log(`[TEXTBEE SMS] Dispatched:`, resData);
-    }
-    return { success: true, mode: "textbee" };
-  }
-
+  // Fallback: If Semaphore key is missing or SMS_PROVIDER=console, simulate via console log
   return { success: true, mode: "console" };
 }
 
@@ -174,3 +117,44 @@ export async function sendGenericNotificationSms(toPhone: string, subject: strin
   const smsText = `${prefix}${subject}: ${message}`;
   await sendSmsMessage(toPhone, smsText, "STATUS NOTIFICATION SMS");
 }
+
+/**
+ * Dispatches an emergency SMS alert for high-priority/hazard tickets directly to Admin or Maintenance Staff.
+ */
+export async function sendEmergencyAlertSms(
+  toPhone: string,
+  recipientName: string,
+  ticketId: string,
+  office: string,
+  jobType: string,
+  description: string,
+  targetType: "ADMIN" | "STAFF" = "ADMIN"
+): Promise<void> {
+  const shortDesc = description.length > 60 ? description.slice(0, 57) + "..." : description;
+  const message = targetType === "ADMIN"
+    ? `🚨 [EMERGENCY ALERT] Ticket ${ticketId} (${office} - ${jobType}): "${shortDesc}". Immediate PPO review required!`
+    : `🚨 [EMERGENCY DISPATCH] Hi ${recipientName}, urgent ticket ${ticketId} (${office} - ${jobType}): "${shortDesc}". Immediate response needed!`;
+
+  await sendSmsMessage(toPhone, message, targetType === "ADMIN" ? "ADMIN EMERGENCY SMS" : "STAFF EMERGENCY SMS");
+}
+
+/**
+ * Dispatches a standard new ticket request notification SMS.
+ */
+export async function sendTicketRequestNoticeSms(
+  toPhone: string,
+  recipientName: string,
+  ticketId: string,
+  office: string,
+  jobType: string,
+  description: string,
+  targetType: "ADMIN" | "STAFF" = "ADMIN"
+): Promise<void> {
+  const shortDesc = description.length > 65 ? description.slice(0, 62) + "..." : description;
+  const message = targetType === "ADMIN"
+    ? `[JORS COSCA] New ticket ${ticketId} submitted by ${office} (${jobType}): "${shortDesc}". Awaiting PPO review.`
+    : `[JOB ORDER ASSIGNED] Hi ${recipientName}, ticket ${ticketId} (${office} - ${jobType}) has been logged and assigned to you: "${shortDesc}".`;
+
+  await sendSmsMessage(toPhone, message, targetType === "ADMIN" ? "ADMIN TICKET NOTICE" : "STAFF TICKET NOTICE");
+}
+
